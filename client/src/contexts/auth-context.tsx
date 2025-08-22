@@ -1,7 +1,7 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { authService, type AuthUser } from "@/lib/auth";
-import type { Session } from "@supabase/supabase-js";
+import type { Session, User } from "@supabase/supabase-js";
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -12,7 +12,7 @@ interface AuthContextType {
     password: string;
     username: string;
     display_name?: string;
-  }) => Promise<{ user: any; session: Session | null }>;
+  }) => Promise<{ user: User | null; session: Session | null }>;
   signIn: (data: { email: string; password: string }) => Promise<void>;
   signOut: () => Promise<void>;
   updateProfile: (updates: {
@@ -25,14 +25,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider");
-  }
-  return context;
-}
 
 interface AuthProviderProps {
   children: ReactNode;
@@ -110,6 +102,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setLoading(true);
     try {
       await authService.signOut();
+      console.log("Auth context: sign out successful");
+      // Manually clear the user and session state
+      setUser(null);
+      setSession(null);
+    } catch (error) {
+      console.error("Auth context sign out error:", error);
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -121,18 +120,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     bio?: string;
     avatar_url?: string;
   }) => {
-    try {
-      const updatedProfile = await authService.updateProfile(updates);
-      if (updatedProfile && user) {
-        setUser({
-          ...user,
-          username: updatedProfile.username,
-          display_name: updatedProfile.display_name,
-          avatar_url: updatedProfile.avatar_url,
-        });
-      }
-    } catch (error) {
-      throw error;
+    const updatedProfile = await authService.updateProfile(updates);
+    if (updatedProfile && user) {
+      setUser({
+        ...user,
+        username: updatedProfile.username,
+        display_name: updatedProfile.display_name,
+        avatar_url: updatedProfile.avatar_url,
+      });
     }
   };
 
@@ -153,3 +148,5 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
+
+export { AuthContext, type AuthContextType };
