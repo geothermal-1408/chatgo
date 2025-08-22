@@ -4,11 +4,20 @@
 -- ALTER DATABASE postgres SET "app.jwt_secret" TO 'jwt-secret';
 */
 -- Create custom types
-CREATE TYPE user_role AS ENUM ('owner', 'admin', 'member');
-CREATE TYPE message_type AS ENUM ('text', 'image', 'file', 'system');
+DO $$ BEGIN
+    CREATE TYPE user_role AS ENUM ('owner', 'admin', 'member');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE message_type AS ENUM ('text', 'image', 'file', 'system');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
 -- Create profiles table (extends auth.users)
-CREATE TABLE public.profiles (
+CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
     username TEXT UNIQUE NOT NULL,
     email TEXT NOT NULL,
@@ -26,7 +35,7 @@ CREATE TABLE public.profiles (
 );
 
 -- Create channels table
-CREATE TABLE public.channels (
+CREATE TABLE IF NOT EXISTS public.channels (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     name TEXT NOT NULL,
     description TEXT,
@@ -39,7 +48,7 @@ CREATE TABLE public.channels (
 );
 
 -- Create channel_members table
-CREATE TABLE public.channel_members (
+CREATE TABLE IF NOT EXISTS public.channel_members (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     channel_id UUID REFERENCES public.channels(id) ON DELETE CASCADE NOT NULL,
     user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
@@ -50,7 +59,7 @@ CREATE TABLE public.channel_members (
 );
 
 -- Create messages table
-CREATE TABLE public.messages (
+CREATE TABLE IF NOT EXISTS public.messages (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     channel_id UUID REFERENCES public.channels(id) ON DELETE CASCADE NOT NULL,
     user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
@@ -64,15 +73,15 @@ CREATE TABLE public.messages (
 );
 
 -- Create indexes for better performance
-CREATE INDEX idx_profiles_username ON public.profiles(username);
-CREATE INDEX idx_profiles_email ON public.profiles(email);
-CREATE INDEX idx_profiles_is_online ON public.profiles(is_online);
-CREATE INDEX idx_channels_created_by ON public.channels(created_by);
-CREATE INDEX idx_channel_members_channel_id ON public.channel_members(channel_id);
-CREATE INDEX idx_channel_members_user_id ON public.channel_members(user_id);
-CREATE INDEX idx_messages_channel_id ON public.messages(channel_id);
-CREATE INDEX idx_messages_user_id ON public.messages(user_id);
-CREATE INDEX idx_messages_created_at ON public.messages(created_at);
+CREATE INDEX IF NOT EXISTS idx_profiles_username ON public.profiles(username);
+CREATE INDEX IF NOT EXISTS idx_profiles_email ON public.profiles(email);
+CREATE INDEX IF NOT EXISTS idx_profiles_is_online ON public.profiles(is_online);
+CREATE INDEX IF NOT EXISTS idx_channels_created_by ON public.channels(created_by);
+CREATE INDEX IF NOT EXISTS idx_channel_members_channel_id ON public.channel_members(channel_id);
+CREATE INDEX IF NOT EXISTS idx_channel_members_user_id ON public.channel_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_messages_channel_id ON public.messages(channel_id);
+CREATE INDEX IF NOT EXISTS idx_messages_user_id ON public.messages(user_id);
+CREATE INDEX IF NOT EXISTS idx_messages_created_at ON public.messages(created_at);
 
 -- Enable Row Level Security
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
@@ -80,12 +89,35 @@ ALTER TABLE public.channels ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.channel_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON public.profiles;
+DROP POLICY IF EXISTS "Users can insert their own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Users can update their own profile" ON public.profiles;
+
+DROP POLICY IF EXISTS "Public channels are viewable by everyone" ON public.channels;
+DROP POLICY IF EXISTS "Authenticated users can create channels" ON public.channels;
+DROP POLICY IF EXISTS "Channel owners can update their channels" ON public.channels;
+DROP POLICY IF EXISTS "Channel owners can delete their channels" ON public.channels;
+
+DROP POLICY IF EXISTS "Users can view their own memberships" ON public.channel_members;
+DROP POLICY IF EXISTS "Users can view memberships of public channels" ON public.channel_members;
+DROP POLICY IF EXISTS "Users can join public channels" ON public.channel_members;
+DROP POLICY IF EXISTS "Channel owners can manage all memberships" ON public.channel_members;
+DROP POLICY IF EXISTS "Users can leave channels" ON public.channel_members;
+DROP POLICY IF EXISTS "Channel members can view channel membership" ON public.channel_members;
+DROP POLICY IF EXISTS "Channel admins can manage membership" ON public.channel_members;
+
+DROP POLICY IF EXISTS "Channel members can view messages" ON public.messages;
+DROP POLICY IF EXISTS "Channel members can insert messages" ON public.messages;
+DROP POLICY IF EXISTS "Message authors can update their messages" ON public.messages;
+DROP POLICY IF EXISTS "Message authors can delete their messages" ON public.messages;
+
 -- Create RLS policies for profiles
 CREATE POLICY "Public profiles are viewable by everyone" ON public.profiles
     FOR SELECT USING (true);
 
 CREATE POLICY "Users can insert their own profile" ON public.profiles
-    FOR INSERT WITH CHECK (auth.uid() = id);
+    FOR INSERT WITH CHECK (auth.uid() = id OR id = '00000000-0000-0000-0000-000000000000');
 
 CREATE POLICY "Users can update their own profile" ON public.profiles
     FOR UPDATE USING (auth.uid() = id);
@@ -98,7 +130,7 @@ CREATE POLICY "Public channels are viewable by everyone" ON public.channels
     ));
 
 CREATE POLICY "Authenticated users can create channels" ON public.channels
-    FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+    FOR INSERT WITH CHECK (auth.role() = 'authenticated' OR created_by = '00000000-0000-0000-0000-000000000000');
 
 CREATE POLICY "Channel owners can update their channels" ON public.channels
     FOR UPDATE USING (created_by = auth.uid());
@@ -107,19 +139,31 @@ CREATE POLICY "Channel owners can delete their channels" ON public.channels
     FOR DELETE USING (created_by = auth.uid());
 
 -- Create RLS policies for channel_members
-CREATE POLICY "Channel members can view channel membership" ON public.channel_members
+CREATE POLICY "Users can view their own memberships" ON public.channel_members
+    FOR SELECT USING (user_id = auth.uid());
+
+CREATE POLICY "Users can view memberships of public channels" ON public.channel_members
     FOR SELECT USING (EXISTS (
-        SELECT 1 FROM public.channel_members cm 
-        WHERE cm.channel_id = channel_members.channel_id AND cm.user_id = auth.uid()
+        SELECT 1 FROM public.channels 
+        WHERE id = channel_members.channel_id AND is_private = false
     ));
 
-CREATE POLICY "Channel admins can manage membership" ON public.channel_members
+CREATE POLICY "Users can join public channels" ON public.channel_members
+    FOR INSERT WITH CHECK (
+        user_id = auth.uid() AND EXISTS (
+            SELECT 1 FROM public.channels 
+            WHERE id = channel_members.channel_id AND is_private = false
+        )
+    );
+
+CREATE POLICY "Channel owners can manage all memberships" ON public.channel_members
     FOR ALL USING (EXISTS (
-        SELECT 1 FROM public.channel_members cm 
-        WHERE cm.channel_id = channel_members.channel_id 
-        AND cm.user_id = auth.uid() 
-        AND cm.role IN ('owner', 'admin')
+        SELECT 1 FROM public.channels 
+        WHERE id = channel_members.channel_id AND created_by = auth.uid()
     ));
+
+CREATE POLICY "Users can leave channels" ON public.channel_members
+    FOR DELETE USING (user_id = auth.uid());
 
 -- Create RLS policies for messages
 CREATE POLICY "Channel members can view messages" ON public.messages
@@ -149,13 +193,12 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Create triggers for updated_at
-CREATE TRIGGER set_updated_at_profiles
+CREATE OR REPLACE TRIGGER set_updated_at_profiles
     BEFORE UPDATE ON public.profiles
     FOR EACH ROW
     EXECUTE FUNCTION public.handle_updated_at();
 
-CREATE TRIGGER set_updated_at_channels
+CREATE OR REPLACE TRIGGER set_updated_at_channels
     BEFORE UPDATE ON public.channels
     FOR EACH ROW
     EXECUTE FUNCTION public.handle_updated_at();
@@ -175,7 +218,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Trigger for automatic profile creation
-CREATE TRIGGER on_auth_user_created
+CREATE OR REPLACE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW
     EXECUTE FUNCTION public.handle_new_user();
@@ -191,3 +234,4 @@ BEGIN
     WHERE id = user_uuid;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
