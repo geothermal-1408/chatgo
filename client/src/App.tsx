@@ -9,7 +9,6 @@ import { SignInSupabase } from "@/components/signin";
 import { SignUpSupabase } from "@/components/signup";
 import { ChatLayout } from "@/components/chat-layout";
 import { AuthProvider, useAuth } from "@/contexts/auth-context";
-import { DebugUserInfo } from "@/components/debug-user-info";
 
 function AppRoutes() {
   const { user, loading } = useAuth();
@@ -17,7 +16,7 @@ function AppRoutes() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
-        <div className="text-white text-xl">Loading...</div>
+        <img className="h-60 w-60" src="/loading.gif" alt="Loading..." />
       </div>
     );
   }
@@ -33,7 +32,6 @@ function AppRoutes() {
         path="/signup"
         element={user ? <Navigate to="/chat" replace /> : <SignUpSupabase />}
       />
-      <Route path="/debug" element={<DebugUserInfo />} />
       <Route
         path="/chat"
         element={
