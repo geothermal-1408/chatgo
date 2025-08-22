@@ -6,12 +6,14 @@ interface ChatHeaderProps {
   activeChannel: string;
   connectionStatus: "connecting" | "connected" | "disconnected" | "error";
   onlineUserCount: number;
+  description?: string;
 }
 
 export function ChatHeader({
   activeChannel,
   connectionStatus,
   onlineUserCount,
+  description,
 }: ChatHeaderProps) {
   const getConnectionStatusColor = () => {
     switch (connectionStatus) {
@@ -33,7 +35,7 @@ export function ChatHeader({
         <h2 className="text-xl font-semibold text-white">{activeChannel}</h2>
         <div className="w-px h-6 bg-gray-600"></div>
         <p className="text-sm text-gray-400">
-          Welcome to #{activeChannel}! This is the beginning of the channel.
+          Welcome to #{activeChannel}! {description}
         </p>
       </div>
       <div className="ml-auto flex items-center space-x-2">

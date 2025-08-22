@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useWebSocket, type Message } from "@/hooks/use-websocket";
+import { useChannels } from "@/hooks/use-database";
 import { MessageComponent } from "@/components/chat/message";
 import { MessageInput } from "@/components/chat/message-input";
 import { ChatHeader } from "@/components/chat/chat-header";
@@ -8,14 +9,10 @@ import { UserList } from "@/components/chat/user-list";
 import { UserControls } from "@/components/chat/user-controls";
 import { TypingIndicator } from "@/components/chat/typing-indicator";
 import { UserProfileModal } from "@/components/chat/user-profile-modal";
+import { CreateChannelModal } from "@/components/chat/create-channel-modal";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useNavigate } from "react-router-dom";
-
-const channels = [
-  { id: "general", name: "general", type: "text" },
-  { id: "random", name: "random", type: "text" },
-  { id: "tech", name: "tech", type: "text" },
-];
+import { useAuth } from "@/hooks/use-auth";
 
 interface User {
   id: string;
@@ -35,15 +32,34 @@ interface ChatLayoutProps {
 }
 
 export function ChatLayout({ initialUser }: ChatLayoutProps) {
-  const [activeChannel, setActiveChannel] = useState("general");
+  // Track both the active channel's id and name
+  const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
+  const [activeChannelName, setActiveChannelName] = useState<string>("general");
   const [isMuted, setIsMuted] = useState(false);
   const [user, setUser] = useState(initialUser);
   const [messages, setMessages] = useState<Message[]>([]);
   const [onlineUsers, setOnlineUsers] = useState<User[]>([]);
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [isCreateChannelModalOpen, setIsCreateChannelModalOpen] =
+    useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const { signOut, updateProfile } = useAuth();
+  const { channels, createChannel, loading: channelsLoading } = useChannels();
+
+  useEffect(() => {
+    if (channels.length > 0) {
+      // If no active channel or the current id is not in the list, default to the first
+      const found = channels.find((ch) => ch.id === activeChannelId);
+      if (!found) {
+        setActiveChannelId(channels[0].id);
+        setActiveChannelName(channels[0].name);
+      } else {
+        setActiveChannelName(found.name);
+      }
+    }
+  }, [channels, activeChannelId]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -55,34 +71,52 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
 
   const handleMessage = useCallback(
     (message: Message) => {
-      if (message.channel === activeChannel) {
+      if (message.channel === activeChannelId) {
         setMessages((prev) => [...prev, message]);
       }
     },
-    [activeChannel]
+    [activeChannelId]
   );
 
   const handleUserJoined = useCallback(
     (username: string) => {
-      const newUser: User = {
-        id: Math.random().toString(36).substring(2, 9),
-        username,
-        status: "online",
-        joinedAt: new Date().toISOString(),
-      };
-      setOnlineUsers((prev) => [...prev, newUser]);
-
-      const systemMessage: Message = {
-        id: Math.random().toString(36).substr(2, 9),
-        type: "user_joined",
-        username: "System",
-        content: `${username} joined the channel`,
-        channel: activeChannel,
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, systemMessage]);
+      setOnlineUsers((prev) => {
+        const userExists = prev.some((user) => user.username === username);
+        if (userExists) {
+          return prev;
+        }
+        const newUser: User = {
+          id: Math.random().toString(36).substring(2, 9),
+          username,
+          status: "online",
+          joinedAt: new Date().toISOString(),
+        };
+        return [...prev, newUser];
+      });
+      if (username !== user?.username) {
+        setMessages((prev) => {
+          const recentMessages = prev.slice(-10);
+          const hasRecentJoinMessage = recentMessages.some(
+            (msg) =>
+              msg.type === "user_joined" &&
+              msg.content.includes(`${username} joined the channel`)
+          );
+          if (hasRecentJoinMessage) {
+            return prev;
+          }
+          const systemMessage: Message = {
+            id: Math.random().toString(36).substr(2, 9),
+            type: "user_joined",
+            username: "System",
+            content: `${username} joined the channel`,
+            channel: activeChannelId || "",
+            timestamp: new Date().toISOString(),
+          };
+          return [...prev, systemMessage];
+        });
+      }
     },
-    [activeChannel]
+    [activeChannelId, user?.username]
   );
 
   const handleUserLeft = useCallback(
@@ -90,18 +124,8 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
       setOnlineUsers((prev) =>
         prev.filter((user) => user.username !== username)
       );
-
-      const systemMessage: Message = {
-        id: Math.random().toString(36).substr(2, 9),
-        type: "user_left",
-        username: "System",
-        content: `${username} left the channel`,
-        channel: activeChannel,
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, systemMessage]);
     },
-    [activeChannel]
+    [activeChannelId]
   );
 
   const handleTyping = useCallback((username: string) => {
@@ -132,7 +156,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     sendStopTyping,
   } = useWebSocket({
     username: user?.username || "",
-    channel: activeChannel,
+    channel: activeChannelId || "",
     onMessage: handleMessage,
     onUserJoined: handleUserJoined,
     onUserLeft: handleUserLeft,
@@ -161,8 +185,18 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     });
   };
 
-  const handleLogout = () => {
-    navigate("/");
+  const handleLogout = async () => {
+    try {
+      console.log("Logout initiated...");
+      setSelectedUser(null); // Close the modal first
+      await signOut();
+      console.log("Logout successful, navigating to home...");
+      navigate("/");
+    } catch (error) {
+      console.error("Logout error:", error);
+      // Show user-friendly error message
+      alert("Failed to logout. Please try again.");
+    }
   };
 
   const handleSendMessage = (message: string) => {
@@ -170,18 +204,55 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
   };
 
   const handleChannelChange = (channelId: string) => {
-    setActiveChannel(channelId);
+    setActiveChannelId(channelId);
+    const found = channels.find((ch) => ch.id === channelId);
+    setActiveChannelName(found ? found.name : "");
     setMessages([]);
     setTypingUsers(new Set());
+  };
+
+  const handleCreateChannel = async (
+    name: string,
+    description?: string,
+    isPrivate: boolean = false
+  ) => {
+    try {
+      const newChannel = await createChannel(name, description, isPrivate);
+      setActiveChannelId(newChannel.id); // Switch to the newly created channel
+      setActiveChannelName(newChannel.name);
+    } catch (error) {
+      console.error("Error creating channel:", error);
+      throw error;
+    }
   };
 
   const handleUserClick = (clickedUser: User) => {
     setSelectedUser(clickedUser);
   };
 
-  const handleSaveProfile = (profile: { bio: string; status: string }) => {
-    if (user) {
-      setUser({ ...user, ...profile });
+  const handleSaveProfile = async (profile: {
+    bio: string;
+    status: string;
+  }) => {
+    try {
+      await updateProfile({ bio: profile.bio });
+      setUser((prev) => ({
+        ...prev,
+        bio: profile.bio,
+        status: profile.status,
+      }));
+
+      // Update the user in online users list
+      setOnlineUsers((prev) =>
+        prev.map((u) =>
+          u.username === user?.username
+            ? { ...u, bio: profile.bio, status: profile.status }
+            : u
+        )
+      );
+    } catch (error) {
+      console.error("Profile update error:", error);
+      // You might want to show an error message to the user here
     }
   };
 
@@ -209,8 +280,10 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
 
           <ChannelList
             channels={channels}
-            activeChannel={activeChannel}
+            activeChannel={activeChannelName}
             onChannelChange={handleChannelChange}
+            onCreateChannel={() => setIsCreateChannelModalOpen(true)}
+            loading={channelsLoading}
           />
 
           <UserControls
@@ -227,9 +300,13 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
         {/* Main Chat Area */}
         <div className="flex-1 flex flex-col bg-gray-800/30 backdrop-blur-sm">
           <ChatHeader
-            activeChannel={activeChannel}
+            activeChannel={activeChannelName}
             connectionStatus={connectionStatus}
             onlineUserCount={onlineUsers.length + 1}
+            description={
+              channels.find((ch) => ch.id === activeChannelId)?.description ||
+              undefined
+            }
           />
 
           {/* Messages Area */}
@@ -249,8 +326,8 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
                     </span>
                   </div>
                   <div className="text-gray-300 bg-gray-700/30 backdrop-blur-sm rounded-lg p-3 border border-gray-600/30">
-                    Welcome to #{activeChannel}, {user.username}! Start chatting
-                    with your team.
+                    Welcome to #{activeChannelName}, {user.username}! Start
+                    chatting with your team.
                   </div>
                 </div>
               </div>
@@ -274,7 +351,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
           {/* Message Input */}
           <div className="p-4 border-t border-gray-700/50">
             <MessageInput
-              activeChannel={activeChannel}
+              activeChannel={activeChannelName}
               isConnected={isConnected}
               onSendMessage={handleSendMessage}
               onTyping={sendTyping}
@@ -303,9 +380,17 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
           isCurrentUser={selectedUser.username === user.username}
           onClose={() => setSelectedUser(null)}
           onSaveProfile={handleSaveProfile}
+          onLogout={handleLogout}
           getAvatarColor={getAvatarColor}
         />
       )}
+
+      {/* Create Channel Modal */}
+      <CreateChannelModal
+        isOpen={isCreateChannelModalOpen}
+        onClose={() => setIsCreateChannelModalOpen(false)}
+        onCreateChannel={handleCreateChannel}
+      />
     </div>
   );
 }

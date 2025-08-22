@@ -32,8 +32,8 @@ export function UserList({
   isConnected,
   getAvatarColor,
   onUserClick,
-  onUserRightClick,
-}: UserListProps) {
+}: //onUserRightClick,
+UserListProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [contextMenu, setContextMenu] = useState<{
     user: User;
@@ -197,11 +197,17 @@ export function UserList({
           username={contextMenu.user.username}
           position={contextMenu.position}
           onClose={() => setContextMenu(null)}
-          onViewProfile={(username) => onUserClick?.(contextMenu.user)}
-          onSendMessage={(username) => console.log("Send message to", username)}
-          onAddFriend={(username) => console.log("Add friend", username)}
-          onBlockUser={(username) => console.log("Block user", username)}
-          onMuteUser={(username) => console.log("Mute user", username)}
+          onViewProfile={() => onUserClick?.(contextMenu.user)}
+          onSendMessage={() =>
+            console.log("Send message to", contextMenu.user.username)
+          }
+          onAddFriend={() =>
+            console.log("Add friend", contextMenu.user.username)
+          }
+          onBlockUser={() =>
+            console.log("Block user", contextMenu.user.username)
+          }
+          onMuteUser={() => console.log("Mute user", contextMenu.user.username)}
         />
       )}
     </div>

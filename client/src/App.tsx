@@ -8,7 +8,8 @@ import { WelcomeScreen } from "@/components/welcome-screen";
 import { SignInSupabase } from "@/components/signin";
 import { SignUpSupabase } from "@/components/signup";
 import { ChatLayout } from "@/components/chat-layout";
-import { AuthProvider, useAuth } from "@/contexts/auth-context";
+import { AuthProvider } from "@/contexts/auth-context";
+import { useAuth } from "@/hooks/use-auth";
 
 function AppRoutes() {
   const { user, loading } = useAuth();

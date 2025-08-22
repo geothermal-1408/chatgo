@@ -10,8 +10,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { MessageCircle, ArrowLeft, Eye, EyeOff, Check } from "lucide-react";
-import { useAuth } from "@/contexts/auth-context";
-import { DebugUserInfo } from "./debug-user-info";
+import { useAuth } from "@/hooks/use-auth";
+import { AuthError } from "@supabase/supabase-js";
 
 export function SignUpSupabase() {
   const [formData, setFormData] = useState({
@@ -81,21 +81,21 @@ export function SignUpSupabase() {
 
       // If no session is returned, email confirmation is required
       if (!result?.session) {
-        setErrors({
-          general:
-            "Success! Please check your email for a confirmation link to complete your registration.",
+        // Navigate to email confirmation page with user's email
+        navigate("/email-confirmation", {
+          state: { email: formData.email },
         });
-        // Don't navigate immediately, let user see the message
-        setTimeout(() => {
-          navigate("/signin");
-        }, 3000);
       }
       // If session exists, user will be automatically redirected by the auth context
-    } catch (error: any) {
-      console.error("Registration failed:", error);
-      setErrors({
-        general: error.message || "Registration failed. Please try again.",
-      });
+    } catch (error: unknown) {
+      if (error instanceof AuthError) {
+        setErrors((prev) => ({
+          ...prev,
+          general: error.message || "Registration failed. Please try again.",
+        }));
+      } else {
+        console.error("Registration failed:", error);
+      }
     }
   };
 
@@ -335,7 +335,6 @@ export function SignUpSupabase() {
           </CardContent>
         </Card>
       </div>
-      <DebugUserInfo />
     </div>
   );
 }

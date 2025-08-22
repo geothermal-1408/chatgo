@@ -17,8 +17,8 @@ export function WelcomeScreen() {
         {/* Header */}
         <header className="p-6">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center font-bold text-lg">
-              C
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center">
+              <img src="./logo-removebg.png" alt="Logo" height={90} />
             </div>
             <span className="text-xl font-bold">ChatGo</span>
           </div>
