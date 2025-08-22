@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/contexts/auth-context";
+import { useAuth } from "@/hooks/use-auth";
+import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 
 export interface Channel {
   id: string;
@@ -44,59 +45,142 @@ export interface ChannelMember {
   };
 }
 
+interface MessagePayload {
+  id: string;
+  channel_id: string;
+  user_id: string;
+  content: string;
+  message_type: "text" | "image" | "file" | "system";
+  file_url: string | null;
+  reply_to: string | null;
+  edited: boolean;
+  edited_at: string | null;
+  created_at: string;
+}
+
 // Hook for managing channels
 export function useChannels() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const { user } = useAuth();
 
   useEffect(() => {
-    if (!user) return;
+    console.log("useChannels - user:", user);
+    console.log("useChannels - user type:", typeof user);
 
     const fetchChannels = async () => {
       try {
-        // Get channels where user is a member
-        const { data: memberChannels, error: memberError } = await supabase
-          .from("channel_members")
-          .select(
-            `
-            channel:channels (
-              id,
-              name,
-              description,
-              is_private,
-              created_by,
-              created_at,
-              updated_at
-            )
-          `
-          )
-          .eq("user_id", user.id);
+        setError(null);
+        setLoading(true);
 
-        if (memberError) throw memberError;
+        console.log("Fetching all channels...");
 
-        // Get public channels
+        // Start with fetching all public channels directly
         const { data: publicChannels, error: publicError } = await supabase
           .from("channels")
           .select("*")
-          .eq("is_private", false);
+          .eq("is_private", false)
+          .order("created_at", { ascending: true });
 
-        if (publicError) throw publicError;
+        if (publicError) {
+          console.error("Error fetching public channels:", publicError);
+          throw publicError;
+        }
+
+        console.log("Public channels fetched:", publicChannels?.length || 0);
+
+        // If no user is authenticated, just show public channels
+        if (!user) {
+          console.log("No authenticated user, showing only public channels");
+          setChannels(publicChannels || []);
+          setLoading(false);
+          return;
+        }
+
+        console.log(
+          "Fetching member channels for authenticated user:",
+          user.id
+        );
+
+        // Get channels where user is a member (only if user is authenticated)
+        let memberChannels: { channel: Channel }[] = [];
+        try {
+          const { data, error: memberError } = await supabase
+            .from("channel_members")
+            .select(
+              `
+              channel:channels (
+                id,
+                name,
+                description,
+                is_private,
+                created_by,
+                created_at,
+                updated_at
+              )
+            `
+            )
+            .eq("user_id", user.id);
+
+          if (memberError) {
+            console.error("Error fetching member channels:", memberError);
+            // Don't fail completely, just use public channels
+          } else {
+            memberChannels = (data as unknown as { channel: Channel }[]) || [];
+          }
+        } catch (memberFetchError) {
+          console.error("Failed to fetch member channels:", memberFetchError);
+          // Continue with just public channels
+        }
+
+        console.log("Member channels found:", memberChannels.length);
 
         // Combine and deduplicate channels
         const allChannels = [
-          ...(memberChannels?.map((mc) => mc.channel).filter(Boolean) || []),
           ...(publicChannels || []),
+          ...memberChannels
+            .map((mc: { channel: Channel }) => mc.channel)
+            .filter(Boolean),
         ];
 
-        const uniqueChannels = allChannels.filter(
-          (channel, index, self) =>
-            index === self.findIndex((c) => c.id === channel.id)
-        ) as Channel[];
+        const uniqueChannels = allChannels
+          .filter(
+            (channel, index, self) =>
+              index === self.findIndex((c) => c && c.id === channel?.id)
+          )
+          .filter(Boolean) as Channel[];
 
+        console.log("Total unique channels:", uniqueChannels.length);
         setChannels(uniqueChannels);
+
+        // If user has no channels and there are public channels, try to auto-join them to the general channel
+        if (uniqueChannels.length > 0 && memberChannels.length === 0) {
+          const generalChannel = uniqueChannels.find(
+            (ch) => ch.name === "general"
+          );
+          if (generalChannel) {
+            try {
+              await supabase.from("channel_members").insert({
+                channel_id: generalChannel.id,
+                user_id: user.id,
+                role: "member",
+              });
+              console.log("Auto-joined user to general channel");
+            } catch (joinError) {
+              console.error("Failed to auto-join general channel:", joinError);
+            }
+          }
+        }
       } catch (error) {
         console.error("Error fetching channels:", error);
+        setError(
+          `Failed to fetch channels: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`
+        );
+        // Set empty array on error so UI doesn't break
+        setChannels([]);
       } finally {
         setLoading(false);
       }
@@ -112,28 +196,36 @@ export function useChannels() {
   ) => {
     if (!user) throw new Error("User not authenticated");
 
-    const { data, error } = await supabase
+    // Create channel directly without RPC
+    const { data: channelData, error: channelError } = await supabase
       .from("channels")
       .insert({
         name,
-        description,
+        description: description || null,
         is_private: isPrivate,
         created_by: user.id,
       })
       .select()
       .single();
 
-    if (error) throw error;
+    if (channelError) throw channelError;
 
-    // Add creator as channel owner
-    await supabase.from("channel_members").insert({
-      channel_id: data.id,
-      user_id: user.id,
-      role: "owner",
-    });
+    // Add the creator as a member
+    const { error: memberError } = await supabase
+      .from("channel_members")
+      .insert({
+        channel_id: channelData.id,
+        user_id: user.id,
+        role: "owner",
+      });
 
-    setChannels((prev) => [...prev, data]);
-    return data;
+    if (memberError) {
+      console.error("Failed to add creator as member:", memberError);
+      // Don't fail the channel creation, just log the error
+    }
+
+    setChannels((prev) => [...prev, channelData]);
+    return channelData;
   };
 
   const joinChannel = async (channelId: string) => {
@@ -165,6 +257,7 @@ export function useChannels() {
   return {
     channels,
     loading,
+    error,
     createChannel,
     joinChannel,
     leaveChannel,
@@ -219,7 +312,7 @@ export function useMessages(channelId: string | null) {
           table: "messages",
           filter: `channel_id=eq.${channelId}`,
         },
-        async (payload) => {
+        async (payload: RealtimePostgresChangesPayload<MessagePayload>) => {
           // Fetch the complete message with user data
           const { data } = await supabase
             .from("messages")
@@ -233,7 +326,7 @@ export function useMessages(channelId: string | null) {
             )
           `
             )
-            .eq("id", payload.new.id)
+            .eq("id", (payload.new as MessagePayload).id)
             .single();
 
           if (data) {
@@ -249,7 +342,7 @@ export function useMessages(channelId: string | null) {
           table: "messages",
           filter: `channel_id=eq.${channelId}`,
         },
-        async (payload) => {
+        async (payload: RealtimePostgresChangesPayload<MessagePayload>) => {
           // Fetch the updated message with user data
           const { data } = await supabase
             .from("messages")
@@ -263,7 +356,7 @@ export function useMessages(channelId: string | null) {
             )
           `
             )
-            .eq("id", payload.new.id)
+            .eq("id", (payload.new as MessagePayload).id)
             .single();
 
           if (data) {
@@ -281,9 +374,9 @@ export function useMessages(channelId: string | null) {
           table: "messages",
           filter: `channel_id=eq.${channelId}`,
         },
-        (payload) => {
+        (payload: RealtimePostgresChangesPayload<MessagePayload>) => {
           setMessages((prev) =>
-            prev.filter((msg) => msg.id !== payload.old.id)
+            prev.filter((msg) => msg.id !== (payload.old as MessagePayload).id)
           );
         }
       )
