@@ -74,16 +74,23 @@ class AuthService {
   // Sign out user
   async signOut() {
     try {
+      console.log("Auth service: Starting sign out...");
       // Update online status before signing out
       const {
         data: { user },
       } = await supabase.auth.getUser();
       if (user) {
+        console.log("Auth service: Updating online status to false");
         await this.updateOnlineStatus(false);
       }
 
+      console.log("Auth service: Calling supabase.auth.signOut()");
       const { error } = await supabase.auth.signOut();
-      if (error) throw error;
+      if (error) {
+        console.error("Auth service: Supabase signOut error:", error);
+        throw error;
+      }
+      console.log("Auth service: Sign out successful");
     } catch (error) {
       console.error("Sign out error:", error);
       throw error;
