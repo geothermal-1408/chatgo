@@ -11,6 +11,8 @@ export interface Channel {
   created_by: string;
   created_at: string;
   updated_at: string;
+  isJoined?: boolean; // Track if user has joined this channel
+  memberCount?: number; // Optional member count for display
 }
 
 export interface Message {
@@ -61,20 +63,21 @@ interface MessagePayload {
 // Hook for managing channels
 export function useChannels() {
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [availableChannels, setAvailableChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuth();
 
   useEffect(() => {
-    console.log("useChannels - user:", user);
-    console.log("useChannels - user type:", typeof user);
+    //console.log("useChannels - user:", user);
+    //console.log("useChannels - user type:", typeof user);
 
     const fetchChannels = async () => {
       try {
         setError(null);
         setLoading(true);
 
-        console.log("Fetching all channels...");
+        //console.log("Fetching all channels...");
 
         // Start with fetching all public channels directly
         const { data: publicChannels, error: publicError } = await supabase
@@ -88,20 +91,23 @@ export function useChannels() {
           throw publicError;
         }
 
-        console.log("Public channels fetched:", publicChannels?.length || 0);
+        //console.log("Public channels fetched:", publicChannels?.length || 0);
 
-        // If no user is authenticated, just show public channels
+        // If no user is authenticated, just show public channels as available to join
         if (!user) {
           console.log("No authenticated user, showing only public channels");
-          setChannels(publicChannels || []);
+          setChannels([]);
+          setAvailableChannels(
+            (publicChannels || []).map((ch) => ({ ...ch, isJoined: false }))
+          );
           setLoading(false);
           return;
         }
 
-        console.log(
-          "Fetching member channels for authenticated user:",
-          user.id
-        );
+        // console.log(
+        //   "Fetching member channels for authenticated user:",
+        //   user.id
+        // );
 
         // Get channels where user is a member (only if user is authenticated)
         let memberChannels: { channel: Channel }[] = [];
@@ -134,29 +140,33 @@ export function useChannels() {
           // Continue with just public channels
         }
 
-        console.log("Member channels found:", memberChannels.length);
+        //console.log("Member channels found:", memberChannels.length);
 
-        // Combine and deduplicate channels
-        const allChannels = [
-          ...(publicChannels || []),
-          ...memberChannels
-            .map((mc: { channel: Channel }) => mc.channel)
-            .filter(Boolean),
-        ];
+        // Extract joined channel IDs
+        const joinedChannelIds = new Set(
+          memberChannels.map((mc: { channel: Channel }) => mc.channel.id)
+        );
 
-        const uniqueChannels = allChannels
-          .filter(
-            (channel, index, self) =>
-              index === self.findIndex((c) => c && c.id === channel?.id)
-          )
-          .filter(Boolean) as Channel[];
+        // ✅ FIX: Show ALL public channels in the main list, regardless of membership
+        // This way users can see and join any public channel
+        const allPublicChannels = (publicChannels || []).map((channel) => ({
+          ...channel,
+          isJoined: joinedChannelIds.has(channel.id),
+        }));
 
-        console.log("Total unique channels:", uniqueChannels.length);
-        setChannels(uniqueChannels);
+        // console.log("All public channels:", allPublicChannels.length);
 
-        // If user has no channels and there are public channels, try to auto-join them to the general channel
-        if (uniqueChannels.length > 0 && memberChannels.length === 0) {
-          const generalChannel = uniqueChannels.find(
+        // Show all public channels in the main list instead of just joined ones
+        setChannels(allPublicChannels);
+        setAvailableChannels([]); // Empty since we're showing all in main list
+
+        // If user has no joined channels and there are public channels, try to auto-join them to the general channel
+        if (
+          joinedChannelIds.size === 0 &&
+          publicChannels &&
+          publicChannels.length > 0
+        ) {
+          const generalChannel = publicChannels.find(
             (ch) => ch.name === "general"
           );
           if (generalChannel) {
@@ -166,7 +176,14 @@ export function useChannels() {
                 user_id: user.id,
                 role: "member",
               });
-              console.log("Auto-joined user to general channel");
+              //console.log("Auto-joined user to general channel");
+
+              // Update the channels list to mark general as joined
+              setChannels((prev) =>
+                prev.map((ch) =>
+                  ch.id === generalChannel.id ? { ...ch, isJoined: true } : ch
+                )
+              );
             } catch (joinError) {
               console.error("Failed to auto-join general channel:", joinError);
             }
@@ -181,6 +198,7 @@ export function useChannels() {
         );
         // Set empty array on error so UI doesn't break
         setChannels([]);
+        setAvailableChannels([]);
       } finally {
         setLoading(false);
       }
@@ -237,7 +255,27 @@ export function useChannels() {
       role: "member",
     });
 
-    if (error) throw error;
+    // Handle duplicate key error (user already a member)
+    if (error) {
+      if (error.code === "23505") {
+        console.log("User is already a member of this channel");
+        // Update the local state to reflect that user is already joined
+        setChannels((prev) =>
+          prev.map((channel) =>
+            channel.id === channelId ? { ...channel, isJoined: true } : channel
+          )
+        );
+        return; // Don't throw error for duplicate membership
+      }
+      throw error;
+    }
+
+    // Update the channel's isJoined status in the channels array
+    setChannels((prev) =>
+      prev.map((channel) =>
+        channel.id === channelId ? { ...channel, isJoined: true } : channel
+      )
+    );
   };
 
   const leaveChannel = async (channelId: string) => {
@@ -251,11 +289,20 @@ export function useChannels() {
 
     if (error) throw error;
 
+    // Move channel from joined to available (if it's public)
+    const channelToMove = channels.find((ch) => ch.id === channelId);
+    if (channelToMove && !channelToMove.is_private) {
+      setAvailableChannels((prev) => [
+        ...prev,
+        { ...channelToMove, isJoined: false },
+      ]);
+    }
     setChannels((prev) => prev.filter((c) => c.id !== channelId));
   };
 
   return {
     channels,
+    availableChannels,
     loading,
     error,
     createChannel,
