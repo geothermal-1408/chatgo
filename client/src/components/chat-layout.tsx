@@ -46,7 +46,16 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { signOut, updateProfile } = useAuth();
-  const { channels, createChannel, loading: channelsLoading } = useChannels();
+  const {
+    channels,
+    createChannel,
+    joinChannel,
+    loading: channelsLoading,
+  } = useChannels();
+
+  const isCurrentUserInList = onlineUsers.some(
+    (onlineUser) => onlineUser.username === user.username
+  );
 
   useEffect(() => {
     if (channels.length > 0) {
@@ -69,9 +78,22 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     scrollToBottom();
   }, [messages]);
 
+  // Handle messages - filter by channel if both message and active channel have valid IDs
   const handleMessage = useCallback(
     (message: Message) => {
-      if (message.channel === activeChannelId) {
+      console.log("Received message:", message);
+      console.log("Active channel ID:", activeChannelId);
+
+      // If message has a channel and we have an active channel, filter by channel
+      // Otherwise, accept all messages (for servers that don't support channels)
+      if (message.channel && activeChannelId) {
+        if (message.channel === activeChannelId) {
+          setMessages((prev) => [...prev, message]);
+        } else {
+          console.log("Message filtered out - channel mismatch");
+        }
+      } else {
+        // Accept all messages when channel filtering isn't available
         setMessages((prev) => [...prev, message]);
       }
     },
@@ -86,13 +108,15 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
           return prev;
         }
         const newUser: User = {
-          id: Math.random().toString(36).substring(2, 9),
+          id: Math.random().toString(36).substring(2, 15),
           username,
           status: "online",
           joinedAt: new Date().toISOString(),
         };
         return [...prev, newUser];
       });
+
+      // Only show join message for other users, not yourself
       if (username !== user?.username) {
         setMessages((prev) => {
           const recentMessages = prev.slice(-10);
@@ -105,7 +129,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
             return prev;
           }
           const systemMessage: Message = {
-            id: Math.random().toString(36).substr(2, 9),
+            id: Math.random().toString(36).substring(2, 15),
             type: "user_joined",
             username: "System",
             content: `${username} joined the channel`,
@@ -127,6 +151,17 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     },
     [activeChannelId]
   );
+
+  const handleUserList = useCallback((usernames: string[]) => {
+    // ✅ FIX: Handle initial user list when joining a channel
+    const users: User[] = usernames.map((username) => ({
+      id: Math.random().toString(36).substring(2, 15),
+      username,
+      status: "online",
+      joinedAt: new Date().toISOString(),
+    }));
+    setOnlineUsers(users);
+  }, []);
 
   const handleTyping = useCallback((username: string) => {
     setTypingUsers((prev) => new Set([...prev, username]));
@@ -154,6 +189,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     sendMessage,
     sendTyping,
     sendStopTyping,
+    switchChannel,
   } = useWebSocket({
     username: user?.username || "",
     channel: activeChannelId || "",
@@ -162,6 +198,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     onUserLeft: handleUserLeft,
     onTyping: handleTyping,
     onStopTyping: handleStopTyping,
+    onUserList: handleUserList, // ✅ FIX: Added user list handler
   });
 
   const getAvatarColor = (username: string) => {
@@ -203,12 +240,29 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     return sendMessage(message);
   };
 
-  const handleChannelChange = (channelId: string) => {
-    setActiveChannelId(channelId);
+  const handleChannelChange = async (channelId: string) => {
     const found = channels.find((ch) => ch.id === channelId);
+
+    // If user isn't a member of this channel, join it first
+    if (found && !found.isJoined) {
+      try {
+        await joinChannel(channelId);
+        console.log(`Successfully joined channel: ${found.name}`);
+      } catch (error) {
+        console.error("Failed to join channel:", error);
+        // Show user-friendly error message
+        alert(`Failed to join channel "${found.name}". Please try again.`);
+        return; // Don't switch to the channel if joining failed
+      }
+    }
+
+    setActiveChannelId(channelId);
     setActiveChannelName(found ? found.name : "");
     setMessages([]);
     setTypingUsers(new Set());
+    setOnlineUsers([]); // ✅ FIX: Clear users when switching channels
+
+    switchChannel(channelId);
   };
 
   const handleCreateChannel = async (
@@ -302,7 +356,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
           <ChatHeader
             activeChannel={activeChannelName}
             connectionStatus={connectionStatus}
-            onlineUserCount={onlineUsers.length + 1}
+            onlineUserCount={onlineUsers.length + (isCurrentUserInList ? 0 : 1)}
             description={
               channels.find((ch) => ch.id === activeChannelId)?.description ||
               undefined
@@ -335,7 +389,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
 
             {messages.map((message) => (
               <MessageComponent
-                key={message.id}
+                key={Math.random().toString(36).substring(2, 15) + message.id}
                 message={message}
                 getAvatarColor={getAvatarColor}
                 formatTimestamp={formatTimestamp}
