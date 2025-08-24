@@ -62,3 +62,5 @@ server/chat
 *.test
 *.out
 go.work
+
+temp
