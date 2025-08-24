@@ -85,6 +85,13 @@ UserListProps) {
     user.username.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const isCurrentUserInList = onlineUsers.some(
+    (user) => user.username === currentUser.username
+  );
+  const totalUserCount = isCurrentUserInList
+    ? filteredUsers.length
+    : filteredUsers.length + 1;
+
   const handleUserRightClick = (e: React.MouseEvent, user: User) => {
     e.preventDefault();
     setContextMenu({
@@ -97,7 +104,7 @@ UserListProps) {
     <div className="w-60 bg-gray-900/50 backdrop-blur-sm border-l border-gray-700/50 p-4 animate-slide-in-right">
       <div className="mb-4">
         <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3 animate-fade-in-scale">
-          Online — {filteredUsers.length + 1}
+          Online — {totalUserCount}
         </h3>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 transition-colors duration-200" />
@@ -151,7 +158,7 @@ UserListProps) {
         </div>
         {filteredUsers.map((onlineUser, index) => (
           <div
-            key={onlineUser.id}
+            key={new Date().toISOString() + onlineUser.id}
             className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-700/30 transition-all duration-300 cursor-pointer group hover-lift animate-fade-in-scale"
             style={{ animationDelay: `${index * 0.1}s` }}
             onClick={() => onUserClick?.(onlineUser)}
