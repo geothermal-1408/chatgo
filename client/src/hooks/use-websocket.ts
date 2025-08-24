@@ -1,15 +1,21 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export interface Message {
   id: string;
-  type: "message" | "user_joined" | "user_left" | "typing" | "stop_typing";
+  type: string;
   username: string;
   content: string;
-  channel: string;
+  channel: string; // ✅ FIX: added channel field
   timestamp: string;
 }
 
-export interface UseWebSocketProps {
+export type ConnectionStatus =
+  | "connecting"
+  | "connected"
+  | "disconnected"
+  | "error";
+
+interface UseWebSocketProps {
   username: string;
   channel: string;
   onMessage: (message: Message) => void;
@@ -17,14 +23,7 @@ export interface UseWebSocketProps {
   onUserLeft: (username: string) => void;
   onTyping: (username: string) => void;
   onStopTyping: (username: string) => void;
-}
-
-export interface UseWebSocketReturn {
-  isConnected: boolean;
-  connectionStatus: "connecting" | "connected" | "disconnected" | "error";
-  sendMessage: (message: string) => boolean;
-  sendTyping: () => void;
-  sendStopTyping: () => void;
+  onUserList?: (users: string[]) => void; // ✅ FIX: Added callback for user list
 }
 
 export function useWebSocket({
@@ -33,168 +32,175 @@ export function useWebSocket({
   onMessage,
   onUserJoined,
   onUserLeft,
-}: //onTyping,
-//onStopTyping,
-UseWebSocketProps): UseWebSocketReturn {
-  const [isConnected, setIsConnected] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<
-    "connecting" | "connected" | "disconnected" | "error"
-  >("disconnected");
+  onTyping,
+  onStopTyping,
+  onUserList,
+}: UseWebSocketProps) {
   const ws = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const reconnectAttempts = useRef(0);
-  const maxReconnectAttempts = 5;
+  const [isConnected, setIsConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] =
+    useState<ConnectionStatus>("connecting");
 
-  const connect = useCallback(() => {
-    if (!username) return;
+  // Client-side rate limiting
+  const lastMessageTime = useRef<number>(0);
+  const messageQueue = useRef<string[]>([]);
+  const isProcessingQueue = useRef<boolean>(false);
+  const lastTypingTime = useRef<number>(0);
 
-    try {
-      setConnectionStatus("connecting");
+  useEffect(() => {
+    ws.current = new WebSocket("ws://localhost:8000/ws");
 
-      // Connect to the Go WebSocket server
-      ws.current = new WebSocket("ws://localhost:8000/ws");
+    ws.current.onopen = () => {
+      setIsConnected(true);
+      setConnectionStatus("connected");
 
-      ws.current.onopen = () => {
-        console.log("Connected to WebSocket server");
-        setIsConnected(true);
-        setConnectionStatus("connected");
-        reconnectAttempts.current = 0;
-
-        // Notify that user joined
-        onUserJoined(username);
+      // ✅ FIX: send a proper join message with type "join" instead of regular message
+      const joinMessage = {
+        type: "join",
+        username,
+        channel,
+        timestamp: new Date().toISOString(),
       };
+      ws.current?.send(JSON.stringify(joinMessage));
+    };
 
-      ws.current.onmessage = (event) => {
-        try {
-          // The Go server sends plain text messages
-          // Format: "username: message content"
-          const messageText = event.data;
+    ws.current.onclose = () => {
+      setIsConnected(false);
+      setConnectionStatus("disconnected");
+    };
 
-          // Parse the message to extract username and content
-          const colonIndex = messageText.indexOf(": ");
-          if (colonIndex > 0) {
-            const senderUsername = messageText.substring(0, colonIndex);
-            const content = messageText.substring(colonIndex + 2);
-
-            const messageData: Message = {
-              id: `msg-${Date.now()}-${Math.random()}`,
-              type: "message",
-              username: senderUsername,
-              content: content,
-              channel,
-              timestamp: new Date().toISOString(),
-            };
-
-            onMessage(messageData);
-          }
-        } catch (error) {
-          console.error("Error parsing message:", error);
-        }
-      };
-
-      ws.current.onclose = () => {
-        console.log("WebSocket connection closed");
-        setIsConnected(false);
-        setConnectionStatus("disconnected");
-
-        // Notify that user left
-        onUserLeft(username);
-
-        // Attempt to reconnect
-        scheduleReconnect();
-      };
-
-      ws.current.onerror = (error) => {
-        console.error("WebSocket error:", error);
-        setConnectionStatus("error");
-        scheduleReconnect();
-      };
-    } catch (error) {
-      console.error("WebSocket connection error:", error);
-      setConnectionStatus("error");
-      scheduleReconnect();
-    }
-  }, [username, channel, onMessage, onUserJoined, onUserLeft]);
-
-  const disconnect = useCallback(() => {
-    if (ws.current) {
-      ws.current.close();
-    }
-    setIsConnected(false);
-    setConnectionStatus("disconnected");
-
-    // Notify that user left
-    if (username) {
-      onUserLeft(username);
-    }
-  }, [username, onUserLeft]);
-
-  const scheduleReconnect = useCallback(() => {
-    if (reconnectAttempts.current < maxReconnectAttempts) {
-      const delay = Math.pow(2, reconnectAttempts.current) * 1000; // Exponential backoff
-      reconnectTimeoutRef.current = setTimeout(() => {
-        reconnectAttempts.current += 1;
-        connect();
-      }, delay);
-    }
-  }, [connect]);
-
-  const sendMessage = useCallback(
-    (message: string): boolean => {
-      if (!isConnected || !username || !message.trim() || !ws.current) {
-        return false;
-      }
-
+    ws.current.onmessage = (event) => {
       try {
-        // Send message in the format expected by Go server: "username: message"
-        const formattedMessage = `${username}: ${message.trim()}`;
-        ws.current.send(formattedMessage);
-        return true;
-      } catch (error) {
-        console.error("Error sending message:", error);
-        return false;
+        const data = JSON.parse(event.data);
+
+        switch (data.type) {
+          case "message":
+            onMessage(data);
+            break;
+          case "user_joined":
+            onUserJoined(data.username);
+            break;
+          case "user_left":
+            onUserLeft(data.username);
+            break;
+          case "typing":
+            onTyping(data.username);
+            break;
+          case "stop_typing":
+            onStopTyping(data.username);
+            break;
+          case "user_list":
+            // Handle initial user list when joining a channel
+            if (onUserList && data.users) {
+              onUserList(data.users);
+            }
+            break;
+          default:
+            console.log("Unknown event:", data);
+        }
+      } catch (err) {
+        console.error("Invalid WS message:", event.data);
       }
-    },
-    [isConnected, username]
-  );
+    };
 
-  const sendTyping = useCallback(() => {
-    // The Go server doesn't support typing indicators yet
-    // This is a placeholder for future implementation
-  }, []);
+    return () => {
+      ws.current?.close();
+    };
+  }, [username, channel]);
 
-  const sendStopTyping = useCallback(() => {
-    // The Go server doesn't support typing indicators yet
-    // This is a placeholder for future implementation
-  }, []);
+  // ✅ FIX: sendMessage with client-side rate limiting
+  const sendMessage = (content: string) => {
+    if (ws.current && isConnected) {
+      const now = Date.now();
+      const timeSinceLastMessage = now - lastMessageTime.current;
 
-  // Connect when username changes
-  useEffect(() => {
-    if (username) {
-      connect();
-    } else {
-      disconnect();
+      // Rate limit: max 1 message per 500ms
+      if (timeSinceLastMessage < 500) {
+        // Queue the message for later
+        messageQueue.current.push(content);
+
+        if (!isProcessingQueue.current) {
+          isProcessingQueue.current = true;
+          const delay = 500 - timeSinceLastMessage;
+          setTimeout(() => {
+            processMessageQueue();
+          }, delay);
+        }
+        return;
+      }
+
+      // Send immediately
+      sendMessageNow(content);
+    }
+  };
+
+  const sendMessageNow = (content: string) => {
+    if (ws.current && isConnected) {
+      const message = {
+        type: "message",
+        username,
+        content,
+        channel,
+        timestamp: new Date().toISOString(),
+        id: Math.random().toString(36).substring(2, 15), // ✅ FIX: Add ID to outgoing messages
+      };
+      ws.current.send(JSON.stringify(message));
+      lastMessageTime.current = Date.now();
+    }
+  };
+
+  const processMessageQueue = () => {
+    if (messageQueue.current.length === 0) {
+      isProcessingQueue.current = false;
+      return;
     }
 
-    return () => {
-      disconnect();
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-    };
-  }, [username, connect, disconnect]);
+    const nextMessage = messageQueue.current.shift();
+    if (nextMessage) {
+      sendMessageNow(nextMessage);
+    }
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (ws.current) {
-        ws.current.close();
+    // Continue processing queue
+    if (messageQueue.current.length > 0) {
+      setTimeout(() => {
+        processMessageQueue();
+      }, 500);
+    } else {
+      isProcessingQueue.current = false;
+    }
+  };
+
+  // ✅ FIX: typing events with rate limiting
+  const sendTyping = () => {
+    if (ws.current && isConnected) {
+      const now = Date.now();
+      if (now - lastTypingTime.current > 1000) {
+        // Max 1 typing event per second
+        ws.current.send(JSON.stringify({ type: "typing", username, channel }));
+        lastTypingTime.current = now;
       }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-    };
-  }, []);
+    }
+  };
+
+  const sendStopTyping = () => {
+    if (ws.current && isConnected) {
+      ws.current.send(
+        JSON.stringify({ type: "stop_typing", username, channel })
+      );
+    }
+  };
+
+  const switchChannel = (newChannel: string) => {
+    if (ws.current && isConnected) {
+      ws.current.send(
+        JSON.stringify({
+          type: "switch_channel",
+          username,
+          channel: newChannel,
+        })
+      );
+    }
+  };
 
   return {
     isConnected,
@@ -202,5 +208,6 @@ UseWebSocketProps): UseWebSocketReturn {
     sendMessage,
     sendTyping,
     sendStopTyping,
+    switchChannel,
   };
 }
