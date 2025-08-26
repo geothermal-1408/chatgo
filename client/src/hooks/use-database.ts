@@ -438,14 +438,40 @@ export function useMessages(channelId: string | null) {
     if (!user || !channelId)
       throw new Error("User not authenticated or no channel selected");
 
+    // Basic send (no idempotent token column). Optional: optimistic append.
+    const optimisticId = `tmp_${Date.now()}_${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: optimisticId,
+        channel_id: channelId,
+        user_id: user.id,
+        content,
+        message_type: "text",
+        file_url: null,
+        reply_to: replyTo || null,
+        edited: false,
+        edited_at: null,
+        created_at: new Date().toISOString(),
+        user: {
+          username: user.username,
+          display_name: user.display_name || null,
+          avatar_url: user.avatar_url || null,
+        },
+      },
+    ]);
     const { error } = await supabase.from("messages").insert({
       channel_id: channelId,
       user_id: user.id,
       content,
       reply_to: replyTo || null,
     });
-
-    if (error) throw error;
+    if (error) {
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+      throw error;
+    }
   };
 
   const editMessage = async (messageId: string, content: string) => {

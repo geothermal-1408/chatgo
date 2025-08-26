@@ -18,6 +18,7 @@ export type ConnectionStatus =
 interface UseWebSocketProps {
   username: string;
   channel: string;
+  accessToken: string; // ✅ FIX: Added access token for authentication
   onMessage: (message: Message) => void;
   onUserJoined: (username: string) => void;
   onUserLeft: (username: string) => void;
@@ -29,6 +30,7 @@ interface UseWebSocketProps {
 export function useWebSocket({
   username,
   channel,
+  accessToken,
   onMessage,
   onUserJoined,
   onUserLeft,
@@ -48,7 +50,15 @@ export function useWebSocket({
   const lastTypingTime = useRef<number>(0);
 
   useEffect(() => {
-    ws.current = new WebSocket("ws://localhost:8000/ws");
+    // Don't connect if we don't have an access token
+    if (!accessToken) {
+      setConnectionStatus("disconnected");
+      return;
+    }
+
+    ws.current = new WebSocket(
+      `ws://localhost:8000/ws?token=${encodeURIComponent(accessToken)}`
+    );
 
     ws.current.onopen = () => {
       setIsConnected(true);
@@ -104,9 +114,11 @@ export function useWebSocket({
     };
 
     return () => {
-      ws.current?.close();
+      if (ws.current) {
+        ws.current.close();
+      }
     };
-  }, [username, channel]);
+  }, [username, channel, accessToken]);
 
   // ✅ FIX: sendMessage with client-side rate limiting
   const sendMessage = (content: string) => {

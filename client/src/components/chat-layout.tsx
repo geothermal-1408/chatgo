@@ -45,7 +45,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
-  const { signOut, updateProfile } = useAuth();
+  const { signOut, updateProfile, session } = useAuth();
   const {
     channels,
     createChannel,
@@ -58,15 +58,25 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
   );
 
   useEffect(() => {
-    if (channels.length > 0) {
-      // If no active channel or the current id is not in the list, default to the first
-      const found = channels.find((ch) => ch.id === activeChannelId);
-      if (!found) {
-        setActiveChannelId(channels[0].id);
-        setActiveChannelName(channels[0].name);
-      } else {
-        setActiveChannelName(found.name);
-      }
+    if (channels.length === 0) return;
+
+    const general = channels.find((ch) => ch.name === "general");
+    const current = channels.find((ch) => ch.id === activeChannelId);
+
+    // If we already have a valid current channel, just sync its name
+    if (current) {
+      if (activeChannelName !== current.name)
+        setActiveChannelName(current.name);
+      return;
+    }
+
+    // Prefer general if available; otherwise fall back to first channel
+    if (general) {
+      setActiveChannelId(general.id);
+      setActiveChannelName(general.name);
+    } else {
+      setActiveChannelId(channels[0].id);
+      setActiveChannelName(channels[0].name);
     }
   }, [channels, activeChannelId]);
 
@@ -193,6 +203,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
   } = useWebSocket({
     username: user?.username || "",
     channel: activeChannelId || "",
+    accessToken: session?.access_token || "",
     onMessage: handleMessage,
     onUserJoined: handleUserJoined,
     onUserLeft: handleUserLeft,

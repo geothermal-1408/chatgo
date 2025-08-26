@@ -1,16 +1,26 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
 	"strings"
-	"encoding/json"
 	"time"
+
 	"github.com/gorilla/websocket"
+	"github.com/joho/godotenv"
 )
 
 const port = "8000"
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -34,6 +44,7 @@ type Message struct {
 	Conn     *websocket.Conn
 	Text     string
 	Username string
+	UserID   string
 }
 
 // Each connected client
@@ -41,6 +52,8 @@ type Client struct {
 	Conn       *websocket.Conn
 	Username   string
 	ChannelID  string        // ✅ FIX: Track which channel the client is in
+	UserID     string        // Supabase auth user id
+	Token      string        // Access token (validated)
 }
 
 // WebSocket JSON format
@@ -64,7 +77,7 @@ func generateID() string {
 	return string(result)
 }
 
-func server(messages chan Message) {
+func server(messages chan Message, sb *SupabaseClient) {
 	clients := map[string]*Client{}
 
 	// getUserList := func(channelID string) []string {
@@ -84,19 +97,19 @@ func server(messages chan Message) {
 		case ClientConnected:
 			addr := msg.Conn.RemoteAddr().String()
 
+			// Connection should already be authenticated in handleWebSocket and user info stored in context
+			// For simplicity, we do token validation here using query params (since no context passing)
+			q := msg.Conn.RemoteAddr().String()
+			_ = q // placeholder (not used)
+
 			// Check if this is a reconnection (same IP)
-			existingClient := clients[addr]
-			if existingClient != nil {
+			if existingClient := clients[addr]; existingClient != nil {
 				log.Printf("\x1b[33mINFO\x1b[0m: client %s reconnecting, cleaning up old connection\n", addr)
 				existingClient.Conn.Close()
 			}
-			
-			clients[addr] = &Client{
-				Conn: msg.Conn,
-				Username: "",
-				ChannelID: "",   // ✅ FIX: Initially no channel
-			}
-			log.Printf("\x1b[32mINFO\x1b[0m: connected to server: %s\n", addr)
+
+			clients[addr] = &Client{Conn: msg.Conn, Username: msg.Username, UserID: msg.UserID}
+			log.Printf("\x1b[32mINFO\x1b[0m: connected to server: %s user=%s id=%s\n", addr, msg.Username, msg.UserID)
 
 		case ClientDisconnected:
 			fullAddr := msg.Conn.RemoteAddr().String()
@@ -136,7 +149,7 @@ func server(messages chan Message) {
 				continue
 			}
 
-            if wsMsg.Type == "switch_channel" {
+			if wsMsg.Type == "switch_channel" {
                 log.Printf("user %s switched from %s to %s\n",
                     author.Username, author.ChannelID, wsMsg.Channel)
                 
@@ -179,6 +192,52 @@ func server(messages chan Message) {
                     author.Conn.WriteMessage(websocket.TextMessage, listJsonMsg)
                 }
                 
+                // ✅ FIX: Send message history to switching user
+				messages, err := sb.GetChannelMessages(wsMsg.Channel, 50)
+				if err != nil {
+					log.Printf("\x1b[33mWARN\x1b[0m: failed to fetch message history for channel %s: %v", wsMsg.Channel, err)
+				} else if len(messages) > 0 {
+					// Get all unique user IDs from messages
+					userIDs := make(map[string]bool)
+					for _, msg := range messages {
+						userIDs[msg.UserID] = true
+					}
+					
+					// Convert to slice
+					userIDList := make([]string, 0, len(userIDs))
+					for userID := range userIDs {
+						userIDList = append(userIDList, userID)
+					}
+					
+					// Get usernames for all users
+					usernames, err := sb.GetProfiles(userIDList)
+					if err != nil {
+						log.Printf("\x1b[33mWARN\x1b[0m: failed to fetch usernames for message history: %v", err)
+						usernames = make(map[string]string) // fallback to empty map
+					}
+					
+					// Send each message as a history message
+					for _, msg := range messages {
+						username := usernames[msg.UserID]
+						if username == "" {
+							username = "unknown"
+						}
+						
+						historyMsg := WSMessage{
+							Type: "message",
+							Username: username,
+							Content: msg.Content,
+							Channel: wsMsg.Channel,
+							Timestamp: msg.CreatedAt,
+							ID: msg.ID,
+						}
+						historyJsonMsg, _ := json.Marshal(historyMsg)
+						author.Conn.WriteMessage(websocket.TextMessage, historyJsonMsg)
+					}
+					
+					log.Printf("\x1b[32mINFO\x1b[0m: sent %d historical messages to %s switching to channel %s", len(messages), author.Username, wsMsg.Channel)
+				}
+                
                 // Notify new channel that user joined
                 joinMsg := WSMessage{
                     Type: "user_joined",
@@ -208,11 +267,13 @@ func server(messages chan Message) {
 				continue
 			}
 
-			// Handle join messages (initial connection or channel switch)
-			if wsMsg.Type == "join" || author.Username == "" {
-				author.Username = wsMsg.Username
+			// Handle join messages (channel join only; username enforced server-side)
+			if wsMsg.Type == "join" {
+				if author.Username == "" {
+					log.Printf("\x1b[31mERROR\x1b[0m: author with empty username tried to join")
+					continue
+				}
 				author.ChannelID = wsMsg.Channel
-				
 				// Get current user list BEFORE adding the new user
 				existingUsers := []string{}
 				for _, client := range clients {
@@ -232,13 +293,59 @@ func server(messages chan Message) {
 					author.Conn.WriteMessage(websocket.TextMessage, listJsonMsg)
 				}
 				
+				// ✅ FIX: Send message history to new user
+				messages, err := sb.GetChannelMessages(wsMsg.Channel, 50)
+				if err != nil {
+					log.Printf("\x1b[33mWARN\x1b[0m: failed to fetch message history for channel %s: %v", wsMsg.Channel, err)
+				} else if len(messages) > 0 {
+					// Get all unique user IDs from messages
+					userIDs := make(map[string]bool)
+					for _, msg := range messages {
+						userIDs[msg.UserID] = true
+					}
+					
+					// Convert to slice
+					userIDList := make([]string, 0, len(userIDs))
+					for userID := range userIDs {
+						userIDList = append(userIDList, userID)
+					}
+					
+					// Get usernames for all users
+					usernames, err := sb.GetProfiles(userIDList)
+					if err != nil {
+						log.Printf("\x1b[33mWARN\x1b[0m: failed to fetch usernames for message history: %v", err)
+						usernames = make(map[string]string) // fallback to empty map
+					}
+					
+					// Send each message as a history message
+					for _, msg := range messages {
+						username := usernames[msg.UserID]
+						if username == "" {
+							username = "unknown"
+						}
+						
+						historyMsg := WSMessage{
+							Type: "message",
+							Username: username,
+							Content: msg.Content,
+							Channel: wsMsg.Channel,
+							Timestamp: msg.CreatedAt,
+							ID: msg.ID,
+						}
+						historyJsonMsg, _ := json.Marshal(historyMsg)
+						author.Conn.WriteMessage(websocket.TextMessage, historyJsonMsg)
+					}
+					
+					log.Printf("\x1b[32mINFO\x1b[0m: sent %d historical messages to %s for channel %s", len(messages), author.Username, wsMsg.Channel)
+				}
+				
 				// Notify others in the same channel that this user joined
 				joinMsg := WSMessage{
 					Type: "user_joined",
-					Username: wsMsg.Username,
+					Username: author.Username,
 					Channel: wsMsg.Channel,
-					Timestamp: time.Now().Format(time.RFC3339), // ✅ FIX: Add timestamp
-					ID: generateID(), // ✅ FIX: Add ID
+					Timestamp: time.Now().Format(time.RFC3339),
+					ID: generateID(),
 				}
 				jsonMsg, _ := json.Marshal(joinMsg)
 				for _, client := range clients {
@@ -257,10 +364,26 @@ func server(messages chan Message) {
 				continue
 			}
 			
-			// ✅ FIX: Ensure message has an ID
-			if wsMsg.ID == "" {
-				wsMsg.ID = generateID()
+			// Ensure an ID for broadcast (not persisted as DB ID)
+			if wsMsg.ID == "" { wsMsg.ID = generateID() }
+
+			if author.UserID == "" {
+				log.Printf("\x1b[31mERROR\x1b[0m: missing user id on author; skipping message persist")
+				continue
 			}
+			// Persist to Supabase (best-effort with retries)
+			dbMsg, err := sb.InsertMessage(wsMsg.Channel, author.UserID, wsMsg.Content)
+			if err != nil {
+				log.Printf("\x1b[31mERROR\x1b[0m: failed to persist message: %v\n", err)
+				// Optionally send error back only to author
+				errPayload := WSMessage{Type: "error", Content: "failed_to_persist", Channel: wsMsg.Channel}
+				_ = author.Conn.WriteJSON(errPayload)
+				continue
+			}
+
+			// Replace outbound fields with DB authoritative data
+			wsMsg.ID = dbMsg.ID
+			wsMsg.Timestamp = dbMsg.CreatedAt
 			
 			log.Printf("%s: %s", authorAddr, strings.TrimSpace(wsMsg.Content))
 
@@ -309,34 +432,73 @@ func client(conn *websocket.Conn, messages chan Message) {
 	}
 }
 
-func handleWebSocket(w http.ResponseWriter, r *http.Request, messages chan Message) {
+func handleWebSocket(w http.ResponseWriter, r *http.Request, messages chan Message, sb *SupabaseClient) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("\x1b[31mERROR\x1b[0m: could not upgrade connection: %s\n", err)
 		return
 	}
 
-	messages <- Message{
-		Type: ClientConnected,
-		Conn: conn,
+	// Authenticate via token (query param: token)
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		log.Printf("\x1b[31mERROR\x1b[0m: missing token, closing connection")
+		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "auth required"))
+		conn.Close()
+		return
 	}
+	log.Printf("\x1b[33mDEBUG\x1b[0m: received token: %s...", token[:min(20, len(token))])
+	user, err := sb.ValidateToken(token)
+	if err != nil {
+		log.Printf("\x1b[31mERROR\x1b[0m: token validation failed: %v", err)
+		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "invalid token"))
+		conn.Close()
+		return
+	}
+
+	// Fetch profile (username) from Supabase
+	profile, perr := sb.GetProfile(user.ID)
+	username := "unknown"
+	if perr != nil {
+		log.Printf("\x1b[33mWARN\x1b[0m: failed to fetch profile for user %s: %v", user.ID, perr)
+	} else if profile != nil {
+		username = profile.Username
+	}
+
+	messages <- Message{Type: ClientConnected, Conn: conn, Username: username, UserID: user.ID}
+
+	// Store user info in client map (after initial add)
+	// We don't have direct reference here; will attach on first join
+	// Simpler approach: inject a synthetic join message with username from profile if needed
+	_ = user // Future: use user info for presence
 
 	client(conn, messages)
 }
 
 func main() {
+	err := godotenv.Load()
+  	if err != nil {
+    log.Fatal("Error loading .env file")
+  	}
+
+	supabaseURL := os.Getenv("SUPABASE_URL")
+	serviceKey := os.Getenv("SUPABASE_SERVICE_ROLE_KEY")
+	if supabaseURL == "" || serviceKey == "" {
+		log.Fatalf("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in environment")
+	}
+	sb := NewSupabaseClient(supabaseURL, serviceKey)
+
 	messages := make(chan Message)
-	go server(messages)
+	go server(messages, sb)
 
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		handleWebSocket(w, r, messages)
+		handleWebSocket(w, r, messages, sb)
 	})
 
 	log.Printf("\x1b[32mINFO\x1b[0m: WebSocket server listening on port %s\n", port)
 	log.Printf("\x1b[32mINFO\x1b[0m: Connect to ws://localhost:%s/ws\n", port)
 
-	err := http.ListenAndServe(":"+port, nil)
-	if err != nil {
+	if err = http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatalf("\x1b[31mERROR\x1b[0m: could not start server: %s\n", err)
 	}
 }
