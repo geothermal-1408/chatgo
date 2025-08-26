@@ -54,6 +54,7 @@ Thumbs.db
 
 # Go specific
 server/chat
+server/chatgo-server
 *.exe
 *.exe~
 *.dll
@@ -63,4 +64,5 @@ server/chat
 *.out
 go.work
 
+# testing files
 temp
