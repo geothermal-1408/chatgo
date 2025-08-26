@@ -1,11 +1,16 @@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Message } from "@/hooks/use-websocket";
+import { useState } from "react";
 
 interface MessageProps {
   message: Message;
   getAvatarColor: (username: string) => string;
   formatTimestamp: (timestamp: string) => string;
   onUserClick?: (username: string) => void;
+  onReply?: (messageId: string, username: string) => void;
+  onEdit?: (messageId: string, content: string) => void;
+  currentUsername?: string;
+  findMessageById?: (messageId: string) => Message | undefined;
 }
 
 export function MessageComponent({
@@ -13,7 +18,13 @@ export function MessageComponent({
   getAvatarColor,
   formatTimestamp,
   onUserClick,
+  onReply,
+  onEdit,
+  currentUsername,
+  findMessageById,
 }: MessageProps) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editContent, setEditContent] = useState(message.content);
   const parseMessageContent = (content: string) => {
     const mentionRegex = /@(\w+)/g;
     const parts = content.split(mentionRegex);
@@ -34,6 +45,22 @@ export function MessageComponent({
       return part;
     });
   };
+
+  const handleEdit = () => {
+    if (editContent.trim() && onEdit) {
+      onEdit(message.id, editContent.trim());
+      setIsEditing(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditContent(message.content);
+    setIsEditing(false);
+  };
+
+  const repliedMessage = message.reply_to
+    ? findMessageById?.(message.reply_to)
+    : undefined;
 
   return (
     <div className="flex items-start space-x-3 group hover:bg-gray-700/20 -mx-2 px-2 py-1 rounded-lg transition-all duration-300 animate-message-slide-in hover-lift">
@@ -69,8 +96,40 @@ export function MessageComponent({
           </span>
           <span className="text-xs text-gray-400 opacity-0 group-hover:opacity-100 transition-all duration-300">
             {formatTimestamp(message.timestamp)}
+            {message.edited && (
+              <span className="ml-1 text-xs text-blue-400">(edited)</span>
+            )}
           </span>
+          <div className="opacity-0 group-hover:opacity-100 transition-all duration-300 flex space-x-1">
+            <button
+              onClick={() => onReply?.(message.id, message.username)}
+              className="text-xs text-gray-400 hover:text-blue-400 px-2 py-1 rounded hover:bg-gray-600/20"
+            >
+              Reply
+            </button>
+            {currentUsername === message.username && (
+              <button
+                onClick={() => setIsEditing(true)}
+                className="text-xs text-gray-400 hover:text-yellow-400 px-2 py-1 rounded hover:bg-gray-600/20"
+              >
+                Edit
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* Reply indicator */}
+        {repliedMessage && (
+          <div className="mb-2 pl-3 border-l-2 border-gray-600 bg-gray-800/30 rounded-r p-2">
+            <div className="text-xs text-gray-400 mb-1">
+              Replying to {repliedMessage.username}
+            </div>
+            <div className="text-sm text-gray-300 truncate">
+              {repliedMessage.content}
+            </div>
+          </div>
+        )}
+
         <div
           className={`${
             message.type === "user_joined"
@@ -84,9 +143,37 @@ export function MessageComponent({
               : ""
           }`}
         >
-          {message.type === "message"
-            ? parseMessageContent(message.content)
-            : message.content}
+          {isEditing ? (
+            <div className="flex items-center space-x-2">
+              <input
+                type="text"
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === "Enter") handleEdit();
+                  if (e.key === "Escape") handleCancelEdit();
+                }}
+                className="flex-1 bg-gray-700 text-white rounded px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                autoFocus
+              />
+              <button
+                onClick={handleEdit}
+                className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                Save
+              </button>
+              <button
+                onClick={handleCancelEdit}
+                className="text-xs px-2 py-1 bg-gray-600 text-white rounded hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : message.type === "message" ? (
+            parseMessageContent(message.content)
+          ) : (
+            message.content
+          )}
         </div>
       </div>
     </div>

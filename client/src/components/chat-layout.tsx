@@ -43,6 +43,11 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [isCreateChannelModalOpen, setIsCreateChannelModalOpen] =
     useState(false);
+  const [replyToMessage, setReplyToMessage] = useState<{
+    id: string;
+    username: string;
+    content: string;
+  } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { signOut, updateProfile, session } = useAuth();
@@ -193,6 +198,13 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     });
   }, []);
 
+  // Handle message editing
+  const handleMessageEdited = useCallback((editedMessage: Message) => {
+    setMessages((prev) =>
+      prev.map((msg) => (msg.id === editedMessage.id ? editedMessage : msg))
+    );
+  }, []);
+
   const {
     isConnected,
     connectionStatus,
@@ -200,6 +212,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     sendTyping,
     sendStopTyping,
     switchChannel,
+    editMessage,
   } = useWebSocket({
     username: user?.username || "",
     channel: activeChannelId || "",
@@ -210,6 +223,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     onTyping: handleTyping,
     onStopTyping: handleStopTyping,
     onUserList: handleUserList, // ✅ FIX: Added user list handler
+    onMessageEdited: handleMessageEdited, // ✅ NEW: Added message edit handler
   });
 
   const getAvatarColor = (username: string) => {
@@ -233,6 +247,31 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     });
   };
 
+  const handleReply = (messageId: string, username: string) => {
+    const message = messages.find((m) => m.id === messageId);
+    if (message) {
+      setReplyToMessage({
+        id: messageId,
+        username,
+        content: message.content,
+      });
+    }
+  };
+
+  const handleEdit = (messageId: string, newContent: string) => {
+    if (editMessage) {
+      editMessage(messageId, newContent);
+    }
+  };
+
+  const handleCancelReply = () => {
+    setReplyToMessage(null);
+  };
+
+  const findMessageById = (messageId: string) => {
+    return messages.find((m) => m.id === messageId);
+  };
+
   const handleLogout = async () => {
     try {
       console.log("Logout initiated...");
@@ -247,8 +286,8 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     }
   };
 
-  const handleSendMessage = (message: string) => {
-    return sendMessage(message);
+  const handleSendMessage = (message: string, replyTo?: string) => {
+    return sendMessage(message, replyTo);
   };
 
   const handleChannelChange = async (channelId: string) => {
@@ -405,6 +444,10 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
                 getAvatarColor={getAvatarColor}
                 formatTimestamp={formatTimestamp}
                 onUserClick={handleUserMention}
+                onReply={handleReply}
+                onEdit={handleEdit}
+                currentUsername={user?.username}
+                findMessageById={findMessageById}
               />
             ))}
 
@@ -414,15 +457,15 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
           </div>
 
           {/* Message Input */}
-          <div className="p-4 border-t border-gray-700/50">
-            <MessageInput
-              activeChannel={activeChannelName}
-              isConnected={isConnected}
-              onSendMessage={handleSendMessage}
-              onTyping={sendTyping}
-              onStopTyping={sendStopTyping}
-            />
-          </div>
+          <MessageInput
+            activeChannel={activeChannelName}
+            isConnected={isConnected}
+            onSendMessage={handleSendMessage}
+            onTyping={sendTyping}
+            onStopTyping={sendStopTyping}
+            replyToMessage={replyToMessage}
+            onCancelReply={handleCancelReply}
+          />
         </div>
 
         {/* Right Sidebar - User List */}

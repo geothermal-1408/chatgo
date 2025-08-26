@@ -65,6 +65,9 @@ type WSMessage struct {
 	Users     []string `json:"users,omitempty"`
 	Timestamp string   `json:"timestamp,omitempty"` // ✅ FIX: Added timestamp field
 	ID        string   `json:"id,omitempty"`        // ✅ FIX: Added ID field
+	ReplyTo   string   `json:"reply_to,omitempty"`  // ✅ NEW: Added reply_to field
+	Edited    bool     `json:"edited,omitempty"`    // ✅ NEW: Added edited field
+	EditedAt  string   `json:"edited_at,omitempty"` // ✅ NEW: Added edited_at field
 }
 
 // generateID creates a random ID string similar to client-side generation
@@ -192,7 +195,7 @@ func server(messages chan Message, sb *SupabaseClient) {
                     author.Conn.WriteMessage(websocket.TextMessage, listJsonMsg)
                 }
                 
-                // ✅ FIX: Send message history to switching user
+				// ✅ FIX: Send message history to switching user
 				messages, err := sb.GetChannelMessages(wsMsg.Channel, 50)
 				if err != nil {
 					log.Printf("\x1b[33mWARN\x1b[0m: failed to fetch message history for channel %s: %v", wsMsg.Channel, err)
@@ -230,6 +233,9 @@ func server(messages chan Message, sb *SupabaseClient) {
 							Channel: wsMsg.Channel,
 							Timestamp: msg.CreatedAt,
 							ID: msg.ID,
+							ReplyTo: func() string { if msg.ReplyTo != nil { return *msg.ReplyTo } else { return "" } }(),
+							Edited: msg.Edited,
+							EditedAt: func() string { if msg.EditedAt != nil { return *msg.EditedAt } else { return "" } }(),
 						}
 						historyJsonMsg, _ := json.Marshal(historyMsg)
 						author.Conn.WriteMessage(websocket.TextMessage, historyJsonMsg)
@@ -264,6 +270,50 @@ func server(messages chan Message, sb *SupabaseClient) {
 						client.Conn.WriteJSON(wsMsg)
 					}
 				}
+				continue
+			}
+
+			// Handle message editing
+			if wsMsg.Type == "edit_message" {
+				if wsMsg.ID == "" || strings.TrimSpace(wsMsg.Content) == "" {
+					log.Printf("\x1b[31mERROR\x1b[0m: edit_message missing ID or content")
+					continue
+				}
+				
+				// Update message in database
+				dbMsg, err := sb.UpdateMessage(wsMsg.ID, author.UserID, wsMsg.Content)
+				if err != nil {
+					log.Printf("\x1b[31mERROR\x1b[0m: failed to edit message: %v", err)
+					// Send error back to author
+					errPayload := WSMessage{Type: "error", Content: "failed_to_edit", Channel: wsMsg.Channel}
+					_ = author.Conn.WriteJSON(errPayload)
+					continue
+				}
+				
+				// Create edit broadcast message
+				editMsg := WSMessage{
+					Type: "message_edited",
+					Username: author.Username,
+					Content: dbMsg.Content,
+					Channel: wsMsg.Channel,
+					ID: dbMsg.ID,
+					Timestamp: dbMsg.CreatedAt,
+					Edited: dbMsg.Edited,
+					EditedAt: *dbMsg.EditedAt,
+				}
+				
+				// Broadcast edit to all channel members
+				for _, client := range clients {
+					if client.ChannelID == wsMsg.Channel {
+						err := client.Conn.WriteJSON(editMsg)
+						if err != nil {
+							log.Printf("\x1b[31mERROR\x1b[0m: failed to send edit to %s: %s", client.Conn.RemoteAddr(), err)
+							client.Conn.Close()
+						}
+					}
+				}
+				
+				log.Printf("\x1b[32mINFO\x1b[0m: message %s edited by %s", wsMsg.ID, author.Username)
 				continue
 			}
 
@@ -331,6 +381,9 @@ func server(messages chan Message, sb *SupabaseClient) {
 							Channel: wsMsg.Channel,
 							Timestamp: msg.CreatedAt,
 							ID: msg.ID,
+							ReplyTo: func() string { if msg.ReplyTo != nil { return *msg.ReplyTo } else { return "" } }(),
+							Edited: msg.Edited,
+							EditedAt: func() string { if msg.EditedAt != nil { return *msg.EditedAt } else { return "" } }(),
 						}
 						historyJsonMsg, _ := json.Marshal(historyMsg)
 						author.Conn.WriteMessage(websocket.TextMessage, historyJsonMsg)
@@ -372,7 +425,11 @@ func server(messages chan Message, sb *SupabaseClient) {
 				continue
 			}
 			// Persist to Supabase (best-effort with retries)
-			dbMsg, err := sb.InsertMessage(wsMsg.Channel, author.UserID, wsMsg.Content)
+			var replyTo *string
+			if wsMsg.ReplyTo != "" {
+				replyTo = &wsMsg.ReplyTo
+			}
+			dbMsg, err := sb.InsertMessage(wsMsg.Channel, author.UserID, wsMsg.Content, replyTo)
 			if err != nil {
 				log.Printf("\x1b[31mERROR\x1b[0m: failed to persist message: %v\n", err)
 				// Optionally send error back only to author
@@ -384,6 +441,13 @@ func server(messages chan Message, sb *SupabaseClient) {
 			// Replace outbound fields with DB authoritative data
 			wsMsg.ID = dbMsg.ID
 			wsMsg.Timestamp = dbMsg.CreatedAt
+			if dbMsg.ReplyTo != nil {
+				wsMsg.ReplyTo = *dbMsg.ReplyTo
+			}
+			wsMsg.Edited = dbMsg.Edited
+			if dbMsg.EditedAt != nil {
+				wsMsg.EditedAt = *dbMsg.EditedAt
+			}
 			
 			log.Printf("%s: %s", authorAddr, strings.TrimSpace(wsMsg.Content))
 

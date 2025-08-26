@@ -17,11 +17,14 @@ type SupabaseClient struct {
 }
 
 type dbMessage struct {
-	ID        string `json:"id"`
-	ChannelID string `json:"channel_id"`
-	UserID    string `json:"user_id"`
-	Content   string `json:"content"`
-	CreatedAt string `json:"created_at"`
+	ID        string  `json:"id"`
+	ChannelID string  `json:"channel_id"`
+	UserID    string  `json:"user_id"`
+	Content   string  `json:"content"`
+	ReplyTo   *string `json:"reply_to"`
+	Edited    bool    `json:"edited"`
+	EditedAt  *string `json:"edited_at"`
+	CreatedAt string  `json:"created_at"`
 }
 
 type profile struct {
@@ -61,8 +64,8 @@ func (s *SupabaseClient) ValidateToken(token string) (*authUser, error) {
 		return nil, fmt.Errorf("token validation failed: %s, body: %s", resp.Status, string(body))
 	}
 	
-	// Debug: log the raw response to see the structure
-	fmt.Printf("DEBUG: Token validation response: %s\n", string(body))
+	//  **** Debug: log the raw response to see the structure **** 
+	//fmt.Printf("DEBUG: Token validation response: %s\n", string(body))
 	
 	// Try parsing as direct user response first
 	var directUser authUser
@@ -83,12 +86,15 @@ func (s *SupabaseClient) ValidateToken(token string) (*authUser, error) {
 	return &data.User, nil
 }
 
-// InsertMessage inserts a message with idempotency (client_message_id)
-func (s *SupabaseClient) InsertMessage(channelID, userID, content string) (*dbMessage, error) {
+// InsertMessage inserts a message with optional reply_to field
+func (s *SupabaseClient) InsertMessage(channelID, userID, content string, replyTo *string) (*dbMessage, error) {
 	payload := map[string]any{
 		"channel_id": channelID,
 		"user_id":    userID,
 		"content":    content,
+	}
+	if replyTo != nil && *replyTo != "" {
+		payload["reply_to"] = *replyTo
 	}
 	b, _ := json.Marshal([]map[string]any{payload}) // PostgREST bulk insert format
 	var lastErr error
@@ -122,7 +128,7 @@ func (s *SupabaseClient) GetChannelMessages(channelID string, limit int) ([]dbMe
 		limit = 50 // Default limit
 	}
 	
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/rest/v1/messages?channel_id=eq.%s&select=id,channel_id,user_id,content,created_at&order=created_at.desc&limit=%d", s.url, channelID, limit), nil)
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/rest/v1/messages?channel_id=eq.%s&select=id,channel_id,user_id,content,reply_to,edited,edited_at,created_at&order=created_at.desc&limit=%d", s.url, channelID, limit), nil)
 	if err != nil { 
 		return nil, err 
 	}
@@ -151,6 +157,46 @@ func (s *SupabaseClient) GetChannelMessages(channelID string, limit int) ([]dbMe
 	}
 	
 	return messages, nil
+}
+
+// UpdateMessage updates an existing message's content and marks it as edited
+func (s *SupabaseClient) UpdateMessage(messageID, userID, newContent string) (*dbMessage, error) {
+	payload := map[string]any{
+		"content":   newContent,
+		"edited":    true,
+		"edited_at": time.Now().Format(time.RFC3339),
+	}
+	b, _ := json.Marshal(payload)
+	
+	// Update with RLS check: only message author can edit
+	req, err := http.NewRequest("PATCH", fmt.Sprintf("%s/rest/v1/messages?id=eq.%s&user_id=eq.%s", s.url, messageID, userID), bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("apikey", s.key)
+	req.Header.Set("Authorization", "Bearer "+s.key)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Prefer", "return=representation")
+	
+	resp, err := s.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("update message failed (%d): %s", resp.StatusCode, string(body))
+	}
+	
+	var rows []dbMessage
+	if err := json.Unmarshal(body, &rows); err != nil {
+		return nil, err
+	}
+	if len(rows) == 1 {
+		return &rows[0], nil
+	}
+	return nil, errors.New("message not found or not authorized to edit")
 }
 
 // func (s *SupabaseClient) getMessageByClientMsgID(clientMessageID string) (*dbMessage, error) {

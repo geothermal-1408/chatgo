@@ -7,6 +7,9 @@ export interface Message {
   content: string;
   channel: string; // ✅ FIX: added channel field
   timestamp: string;
+  reply_to?: string; // ✅ NEW: Added reply_to field
+  edited?: boolean; // ✅ NEW: Added edited field
+  edited_at?: string; // ✅ NEW: Added edited_at field
 }
 
 export type ConnectionStatus =
@@ -25,6 +28,7 @@ interface UseWebSocketProps {
   onTyping: (username: string) => void;
   onStopTyping: (username: string) => void;
   onUserList?: (users: string[]) => void; // ✅ FIX: Added callback for user list
+  onMessageEdited?: (message: Message) => void; // ✅ NEW: Added callback for message edits
 }
 
 export function useWebSocket({
@@ -37,6 +41,7 @@ export function useWebSocket({
   onTyping,
   onStopTyping,
   onUserList,
+  onMessageEdited,
 }: UseWebSocketProps) {
   const ws = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -87,6 +92,11 @@ export function useWebSocket({
           case "message":
             onMessage(data);
             break;
+          case "message_edited":
+            if (onMessageEdited) {
+              onMessageEdited(data);
+            }
+            break;
           case "user_joined":
             onUserJoined(data.username);
             break;
@@ -120,8 +130,8 @@ export function useWebSocket({
     };
   }, [username, channel, accessToken]);
 
-  // ✅ FIX: sendMessage with client-side rate limiting
-  const sendMessage = (content: string) => {
+  // ✅ FIX: sendMessage with client-side rate limiting and optional reply-to
+  const sendMessage = (content: string, replyTo?: string) => {
     if (ws.current && isConnected) {
       const now = Date.now();
       const timeSinceLastMessage = now - lastMessageTime.current;
@@ -129,7 +139,17 @@ export function useWebSocket({
       // Rate limit: max 1 message per 500ms
       if (timeSinceLastMessage < 500) {
         // Queue the message for later
-        messageQueue.current.push(content);
+        messageQueue.current.push(
+          JSON.stringify({
+            type: "message",
+            username,
+            content,
+            channel,
+            timestamp: new Date().toISOString(),
+            reply_to: replyTo,
+            id: Math.random().toString(36).substring(2, 15),
+          })
+        );
 
         if (!isProcessingQueue.current) {
           isProcessingQueue.current = true;
@@ -142,11 +162,11 @@ export function useWebSocket({
       }
 
       // Send immediately
-      sendMessageNow(content);
+      sendMessageNow(content, replyTo);
     }
   };
 
-  const sendMessageNow = (content: string) => {
+  const sendMessageNow = (content: string, replyTo?: string) => {
     if (ws.current && isConnected) {
       const message = {
         type: "message",
@@ -155,6 +175,7 @@ export function useWebSocket({
         channel,
         timestamp: new Date().toISOString(),
         id: Math.random().toString(36).substring(2, 15), // ✅ FIX: Add ID to outgoing messages
+        reply_to: replyTo,
       };
       ws.current.send(JSON.stringify(message));
       lastMessageTime.current = Date.now();
@@ -167,12 +188,12 @@ export function useWebSocket({
       return;
     }
 
-    const nextMessage = messageQueue.current.shift();
-    if (nextMessage) {
-      sendMessageNow(nextMessage);
+    const message = messageQueue.current.shift();
+    if (message && ws.current && isConnected) {
+      ws.current.send(message); // Message is already JSON stringified
+      lastMessageTime.current = Date.now();
     }
 
-    // Continue processing queue
     if (messageQueue.current.length > 0) {
       setTimeout(() => {
         processMessageQueue();
@@ -214,6 +235,19 @@ export function useWebSocket({
     }
   };
 
+  const editMessage = (messageId: string, newContent: string) => {
+    if (ws.current && isConnected) {
+      ws.current.send(
+        JSON.stringify({
+          type: "edit_message",
+          id: messageId,
+          content: newContent,
+          channel,
+        })
+      );
+    }
+  };
+
   return {
     isConnected,
     connectionStatus,
@@ -221,5 +255,6 @@ export function useWebSocket({
     sendTyping,
     sendStopTyping,
     switchChannel,
+    editMessage,
   };
 }

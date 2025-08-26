@@ -2,14 +2,16 @@ import type React from "react";
 
 import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Send } from "lucide-react";
+import { Send, X } from "lucide-react";
 
 interface MessageInputProps {
   activeChannel: string;
   isConnected: boolean;
-  onSendMessage: (message: string) => void;
+  onSendMessage: (message: string, replyTo?: string) => void;
   onTyping: () => void;
   onStopTyping: () => void;
+  replyToMessage?: { id: string; username: string; content: string } | null;
+  onCancelReply?: () => void;
 }
 
 export function MessageInput({
@@ -18,6 +20,8 @@ export function MessageInput({
   onSendMessage,
   onTyping,
   onStopTyping,
+  replyToMessage,
+  onCancelReply,
 }: MessageInputProps) {
   const [messageInput, setMessageInput] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -27,13 +31,14 @@ export function MessageInput({
     e.preventDefault();
     if (messageInput.trim() && !isSending) {
       setIsSending(true);
-      onSendMessage(messageInput.trim());
+      onSendMessage(messageInput.trim(), replyToMessage?.id);
       setMessageInput("");
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
         typingTimeoutRef.current = null;
       }
       onStopTyping();
+      onCancelReply?.(); // Clear reply when message is sent
 
       // Simulate send animation delay
       setTimeout(() => setIsSending(false), 300);
@@ -59,12 +64,34 @@ export function MessageInput({
 
   return (
     <div className="p-4 border-t border-gray-700/50 bg-gray-900/20 backdrop-blur-sm">
+      {replyToMessage && (
+        <div className="mb-3 p-3 bg-gray-800/50 rounded-lg border border-gray-600/30 flex items-center justify-between">
+          <div className="flex-1">
+            <div className="text-xs text-gray-400 mb-1">
+              Replying to {replyToMessage.username}
+            </div>
+            <div className="text-sm text-gray-300 truncate">
+              {replyToMessage.content}
+            </div>
+          </div>
+          <button
+            onClick={onCancelReply}
+            className="ml-3 p-1 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded transition-all duration-200"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
       <form onSubmit={handleSendMessage} className="relative">
         <input
           type="text"
           value={messageInput}
           onChange={handleInputChange}
-          placeholder={`Message #${activeChannel}`}
+          placeholder={
+            replyToMessage
+              ? `Reply to ${replyToMessage.username}...`
+              : `Message #${activeChannel}`
+          }
           disabled={!isConnected}
           className="w-full bg-gray-700/50 backdrop-blur-sm border border-gray-600/50 rounded-lg px-4 py-3 pr-20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed message-input-focus focus-ring"
         />
