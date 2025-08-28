@@ -20,6 +20,8 @@ interface User {
   status: string;
   role?: string;
   bio?: string;
+  display_name?: string;
+  avatar_url?: string;
   joinedAt?: string;
 }
 
@@ -28,6 +30,8 @@ interface ChatLayoutProps {
     username: string;
     status?: string;
     bio?: string;
+    display_name?: string;
+    avatar_url?: string;
   };
 }
 
@@ -337,20 +341,47 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
   const handleSaveProfile = async (profile: {
     bio: string;
     status: string;
+    display_name?: string;
+    avatar_url?: string;
   }) => {
     try {
-      await updateProfile({ bio: profile.bio });
+      const updateData: any = { bio: profile.bio };
+
+      if (profile.display_name) {
+        updateData.display_name = profile.display_name;
+      }
+
+      if (profile.avatar_url !== undefined) {
+        updateData.avatar_url = profile.avatar_url;
+      }
+
+      await updateProfile(updateData);
+
       setUser((prev) => ({
         ...prev,
         bio: profile.bio,
         status: profile.status,
+        display_name: profile.display_name || prev.display_name,
+        avatar_url:
+          profile.avatar_url !== undefined
+            ? profile.avatar_url
+            : prev.avatar_url,
       }));
 
       // Update the user in online users list
       setOnlineUsers((prev) =>
         prev.map((u) =>
           u.username === user?.username
-            ? { ...u, bio: profile.bio, status: profile.status }
+            ? {
+                ...u,
+                bio: profile.bio,
+                status: profile.status,
+                display_name: profile.display_name || u.display_name,
+                avatar_url:
+                  profile.avatar_url !== undefined
+                    ? profile.avatar_url
+                    : u.avatar_url,
+              }
             : u
         )
       );

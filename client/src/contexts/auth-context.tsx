@@ -21,6 +21,11 @@ interface AuthContextType {
     bio?: string;
     avatar_url?: string;
   }) => Promise<void>;
+  updateUserStatus: (
+    status: "online" | "away" | "busy" | "invisible"
+  ) => Promise<void>;
+  uploadAvatar: (file: File) => Promise<string>;
+  deleteAvatar: (avatarUrl: string) => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
 }
 
@@ -120,12 +125,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     bio?: string;
     avatar_url?: string;
   }) => {
-    const updatedProfile = await authService.updateProfile(updates);
-    if (updatedProfile && user) {
+    if (!user) throw new Error("No authenticated user");
+    const updatedProfile = await authService.updateProfile(updates, user.id);
+    if (updatedProfile) {
       setUser({
         ...user,
         username: updatedProfile.username,
         display_name: updatedProfile.display_name,
+        bio: updatedProfile.bio,
         avatar_url: updatedProfile.avatar_url,
       });
     }
@@ -133,6 +140,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const resetPassword = async (email: string) => {
     await authService.resetPassword(email);
+  };
+
+  const updateUserStatus = async (
+    status: "online" | "away" | "busy" | "invisible"
+  ) => {
+    if (!user) throw new Error("No authenticated user");
+    await authService.updateUserStatus(status, user.id);
+    // Note: User status is not part of the current AuthUser interface
+    // You may want to add it to the interface if needed
+  };
+
+  const uploadAvatar = async (file: File) => {
+    if (!user) throw new Error("No authenticated user");
+    const avatarUrl = await authService.uploadAvatar(file, user.id);
+    // Update profile with new avatar URL
+    await updateProfile({ avatar_url: avatarUrl });
+    return avatarUrl;
+  };
+
+  const deleteAvatar = async (avatarUrl: string) => {
+    await authService.deleteAvatar(avatarUrl);
+    // Update profile to remove avatar URL
+    await updateProfile({ avatar_url: undefined });
   };
 
   const value: AuthContextType = {
@@ -143,6 +173,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     signIn,
     signOut,
     updateProfile,
+    updateUserStatus,
+    uploadAvatar,
+    deleteAvatar,
     resetPassword,
   };
 
