@@ -196,10 +196,11 @@ func server(messages chan Message, sb *SupabaseClient) {
                 }
                 
 				// ✅ FIX: Send message history to switching user
-				messages, err := sb.GetChannelMessages(wsMsg.Channel, 50)
-				if err != nil {
-					log.Printf("\x1b[33mWARN\x1b[0m: failed to fetch message history for channel %s: %v", wsMsg.Channel, err)
-				} else if len(messages) > 0 {
+				if wsMsg.Channel != "" { // Only fetch if channel is not empty
+					messages, err := sb.GetChannelMessages(wsMsg.Channel, 50)
+					if err != nil {
+						log.Printf("\x1b[33mWARN\x1b[0m: failed to fetch message history for channel %s: %v", wsMsg.Channel, err)
+					} else if len(messages) > 0 {
 					// Get all unique user IDs from messages
 					userIDs := make(map[string]bool)
 					for _, msg := range messages {
@@ -242,6 +243,7 @@ func server(messages chan Message, sb *SupabaseClient) {
 					}
 					
 					log.Printf("\x1b[32mINFO\x1b[0m: sent %d historical messages to %s switching to channel %s", len(messages), author.Username, wsMsg.Channel)
+				}
 				}
                 
                 // Notify new channel that user joined
@@ -317,6 +319,45 @@ func server(messages chan Message, sb *SupabaseClient) {
 				continue
 			}
 
+			// Handle message deletion
+			if wsMsg.Type == "delete_message" {
+				if wsMsg.ID == "" {
+					log.Printf("\x1b[31mERROR\x1b[0m: delete_message missing ID")
+					continue
+				}
+				
+				// Delete message from database
+				err := sb.DeleteMessage(wsMsg.ID, author.UserID)
+				if err != nil {
+					log.Printf("\x1b[31mERROR\x1b[0m: failed to delete message: %v", err)
+					// Send error back to author
+					errPayload := WSMessage{Type: "error", Content: "failed_to_delete", Channel: wsMsg.Channel}
+					_ = author.Conn.WriteJSON(errPayload)
+					continue
+				}
+				
+				// Create delete broadcast message
+				deleteMsg := WSMessage{
+					Type: "message_deleted",
+					ID: wsMsg.ID,
+					Channel: wsMsg.Channel,
+				}
+				
+				// Broadcast deletion to all channel members
+				for _, client := range clients {
+					if client.ChannelID == wsMsg.Channel {
+						err := client.Conn.WriteJSON(deleteMsg)
+						if err != nil {
+							log.Printf("\x1b[31mERROR\x1b[0m: failed to send delete to %s: %s", client.Conn.RemoteAddr(), err)
+							client.Conn.Close()
+						}
+					}
+				}
+				
+				log.Printf("\x1b[32mINFO\x1b[0m: message %s deleted by %s", wsMsg.ID, author.Username)
+				continue
+			}
+
 			// Handle join messages (channel join only; username enforced server-side)
 			if wsMsg.Type == "join" {
 				if author.Username == "" {
@@ -344,10 +385,11 @@ func server(messages chan Message, sb *SupabaseClient) {
 				}
 				
 				// ✅ FIX: Send message history to new user
-				messages, err := sb.GetChannelMessages(wsMsg.Channel, 50)
-				if err != nil {
-					log.Printf("\x1b[33mWARN\x1b[0m: failed to fetch message history for channel %s: %v", wsMsg.Channel, err)
-				} else if len(messages) > 0 {
+				if wsMsg.Channel != "" { // Only fetch if channel is not empty
+					messages, err := sb.GetChannelMessages(wsMsg.Channel, 50)
+					if err != nil {
+						log.Printf("\x1b[33mWARN\x1b[0m: failed to fetch message history for channel %s: %v", wsMsg.Channel, err)
+					} else if len(messages) > 0 {
 					// Get all unique user IDs from messages
 					userIDs := make(map[string]bool)
 					for _, msg := range messages {
@@ -390,6 +432,7 @@ func server(messages chan Message, sb *SupabaseClient) {
 					}
 					
 					log.Printf("\x1b[32mINFO\x1b[0m: sent %d historical messages to %s for channel %s", len(messages), author.Username, wsMsg.Channel)
+				}
 				}
 				
 				// Notify others in the same channel that this user joined

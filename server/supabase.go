@@ -199,6 +199,31 @@ func (s *SupabaseClient) UpdateMessage(messageID, userID, newContent string) (*d
 	return nil, errors.New("message not found or not authorized to edit")
 }
 
+// DeleteMessage deletes a message (only the author can delete their own messages)
+func (s *SupabaseClient) DeleteMessage(messageID, userID string) error {
+	// Delete with RLS check: only message author can delete
+	req, err := http.NewRequest("DELETE", fmt.Sprintf("%s/rest/v1/messages?id=eq.%s&user_id=eq.%s", s.url, messageID, userID), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("apikey", s.key)
+	req.Header.Set("Authorization", "Bearer "+s.key)
+	req.Header.Set("Content-Type", "application/json")
+	
+	resp, err := s.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 204 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("delete message failed (%d): %s", resp.StatusCode, string(body))
+	}
+	
+	return nil
+}
+
 // func (s *SupabaseClient) getMessageByClientMsgID(clientMessageID string) (*dbMessage, error) {
 // 	req, err := http.NewRequest("GET", fmt.Sprintf("%s/rest/v1/messages?client_message_id=eq.%s&select=id,channel_id,user_id,content,created_at", s.url, clientMessageID), nil)
 // 	if err != nil { return nil, err }
