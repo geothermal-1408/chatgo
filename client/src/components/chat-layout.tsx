@@ -10,6 +10,7 @@ import { UserControls } from "@/components/chat/user-controls";
 import { TypingIndicator } from "@/components/chat/typing-indicator";
 import { UserProfileModal } from "@/components/chat/user-profile-modal";
 import { CreateChannelModal } from "@/components/chat/create-channel-modal";
+import { ChannelSettingsModal } from "@/components/chat/channel-settings-modal";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
@@ -47,6 +48,8 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [isCreateChannelModalOpen, setIsCreateChannelModalOpen] =
     useState(false);
+  const [isChannelSettingsModalOpen, setIsChannelSettingsModalOpen] =
+    useState(false);
   const [replyToMessage, setReplyToMessage] = useState<{
     id: string;
     username: string;
@@ -58,6 +61,8 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
   const {
     channels,
     createChannel,
+    updateChannel,
+    deleteChannel,
     joinChannel,
     loading: channelsLoading,
   } = useChannels();
@@ -100,11 +105,6 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
   // Handle messages - filter by channel if both message and active channel have valid IDs
   const handleMessage = useCallback(
     (message: Message) => {
-      console.log("Received message:", message);
-      console.log("Active channel ID:", activeChannelId);
-
-      // If message has a channel and we have an active channel, filter by channel
-      // Otherwise, accept all messages (for servers that don't support channels)
       if (message.channel && activeChannelId) {
         if (message.channel === activeChannelId) {
           setMessages((prev) => [...prev, message]);
@@ -209,6 +209,11 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     );
   }, []);
 
+  // Handle message deletion
+  const handleMessageDeleted = useCallback((messageId: string) => {
+    setMessages((prev) => prev.filter((msg) => msg.id !== messageId));
+  }, []);
+
   const {
     isConnected,
     connectionStatus,
@@ -217,9 +222,10 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     sendStopTyping,
     switchChannel,
     editMessage,
+    deleteMessage,
   } = useWebSocket({
     username: user?.username || "",
-    channel: activeChannelId || "",
+    channel: activeChannelId || "", // This should not be empty - let's check if we have a valid channel
     accessToken: session?.access_token || "",
     onMessage: handleMessage,
     onUserJoined: handleUserJoined,
@@ -228,6 +234,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     onStopTyping: handleStopTyping,
     onUserList: handleUserList, // ✅ FIX: Added user list handler
     onMessageEdited: handleMessageEdited, // ✅ NEW: Added message edit handler
+    onMessageDeleted: handleMessageDeleted, // ✅ NEW: Added message delete handler
   });
 
   const getAvatarColor = (username: string) => {
@@ -265,6 +272,12 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
   const handleEdit = (messageId: string, newContent: string) => {
     if (editMessage) {
       editMessage(messageId, newContent);
+    }
+  };
+
+  const handleDelete = (messageId: string) => {
+    if (deleteMessage) {
+      deleteMessage(messageId);
     }
   };
 
@@ -330,6 +343,50 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
       setActiveChannelName(newChannel.name);
     } catch (error) {
       console.error("Error creating channel:", error);
+      throw error;
+    }
+  };
+
+  const handleOpenChannelSettings = () => {
+    setIsChannelSettingsModalOpen(true);
+  };
+
+  const handleUpdateChannel = async (
+    channelId: string,
+    updates: { name?: string; description?: string; is_private?: boolean }
+  ) => {
+    try {
+      await updateChannel(channelId, updates);
+      // Update the active channel name if it was changed
+      if (updates.name && channelId === activeChannelId) {
+        setActiveChannelName(updates.name);
+      }
+    } catch (error) {
+      console.error("Error updating channel:", error);
+      throw error;
+    }
+  };
+
+  const handleDeleteChannel = async (channelId: string) => {
+    console.log("handleDeleteChannel called with channelId:", channelId);
+    try {
+      console.log("Calling deleteChannel function...");
+      await deleteChannel(channelId);
+      console.log("deleteChannel completed successfully");
+
+      // If the deleted channel was the active one, switch to general or first available channel
+      if (channelId === activeChannelId) {
+        const remainingChannels = channels.filter((ch) => ch.id !== channelId);
+        if (remainingChannels.length > 0) {
+          setActiveChannelId(remainingChannels[0].id);
+          setActiveChannelName(remainingChannels[0].name);
+        } else {
+          setActiveChannelId(null);
+          setActiveChannelName("general");
+        }
+      }
+    } catch (error) {
+      console.error("Error deleting channel:", error);
       throw error;
     }
   };
@@ -442,6 +499,11 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
               channels.find((ch) => ch.id === activeChannelId)?.description ||
               undefined
             }
+            isChannelOwner={
+              channels.find((ch) => ch.id === activeChannelId)?.created_by ===
+              session?.user?.id
+            }
+            onOpenChannelSettings={handleOpenChannelSettings}
           />
 
           {/* Messages Area */}
@@ -477,6 +539,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
                 onUserClick={handleUserMention}
                 onReply={handleReply}
                 onEdit={handleEdit}
+                onDelete={handleDelete}
                 currentUsername={user?.username}
                 findMessageById={findMessageById}
               />
@@ -529,6 +592,16 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
         isOpen={isCreateChannelModalOpen}
         onClose={() => setIsCreateChannelModalOpen(false)}
         onCreateChannel={handleCreateChannel}
+      />
+
+      {/* Channel Settings Modal */}
+      <ChannelSettingsModal
+        isOpen={isChannelSettingsModalOpen}
+        onClose={() => setIsChannelSettingsModalOpen(false)}
+        channel={channels.find((ch) => ch.id === activeChannelId) || null}
+        onUpdateChannel={handleUpdateChannel}
+        onDeleteChannel={handleDeleteChannel}
+        currentUserId={session?.user?.id || ""}
       />
     </div>
   );

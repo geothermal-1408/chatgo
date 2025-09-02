@@ -1,12 +1,14 @@
 "use client";
 
-import { Hash, Users } from "lucide-react";
+import { Hash, Users, Settings } from "lucide-react";
 
 interface ChatHeaderProps {
   activeChannel: string;
   connectionStatus: "connecting" | "connected" | "disconnected" | "error";
   onlineUserCount: number;
   description?: string;
+  isChannelOwner?: boolean;
+  onOpenChannelSettings?: () => void;
 }
 
 export function ChatHeader({
@@ -14,6 +16,8 @@ export function ChatHeader({
   connectionStatus,
   onlineUserCount,
   description,
+  isChannelOwner,
+  onOpenChannelSettings,
 }: ChatHeaderProps) {
   const getConnectionStatusColor = () => {
     switch (connectionStatus) {
@@ -39,6 +43,15 @@ export function ChatHeader({
         </p>
       </div>
       <div className="ml-auto flex items-center space-x-2">
+        {isChannelOwner && (
+          <button
+            onClick={onOpenChannelSettings}
+            className="p-2 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-lg transition-colors"
+            title="Channel Settings"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        )}
         <div
           className={`w-2 h-2 rounded-full ${getConnectionStatusColor()}`}
         ></div>

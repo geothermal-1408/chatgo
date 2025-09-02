@@ -41,6 +41,11 @@ export function CreateChannelModal({
     setError("");
 
     try {
+      console.log("Creating channel with:", {
+        name: name.trim(),
+        description: description.trim() || undefined,
+        isPrivate,
+      });
       await onCreateChannel(
         name.trim(),
         description.trim() || undefined,
@@ -52,7 +57,9 @@ export function CreateChannelModal({
       onClose();
     } catch (error) {
       console.error("Error creating channel:", error);
-      setError("Failed to create channel. Please try again.");
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error occurred";
+      setError(`Failed to create channel: ${errorMessage}`);
     } finally {
       setIsCreating(false);
     }
