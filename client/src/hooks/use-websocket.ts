@@ -29,6 +29,7 @@ interface UseWebSocketProps {
   onStopTyping: (username: string) => void;
   onUserList?: (users: string[]) => void; // ✅ FIX: Added callback for user list
   onMessageEdited?: (message: Message) => void; // ✅ NEW: Added callback for message edits
+  onMessageDeleted?: (messageId: string) => void; // ✅ NEW: Added callback for message deletions
 }
 
 export function useWebSocket({
@@ -42,6 +43,7 @@ export function useWebSocket({
   onStopTyping,
   onUserList,
   onMessageEdited,
+  onMessageDeleted,
 }: UseWebSocketProps) {
   const ws = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -55,8 +57,8 @@ export function useWebSocket({
   const lastTypingTime = useRef<number>(0);
 
   useEffect(() => {
-    // Don't connect if we don't have an access token
-    if (!accessToken) {
+    // Don't connect if we don't have an access token or valid channel
+    if (!accessToken || !channel.trim()) {
       setConnectionStatus("disconnected");
       return;
     }
@@ -97,6 +99,11 @@ export function useWebSocket({
               onMessageEdited(data);
             }
             break;
+          case "message_deleted":
+            if (onMessageDeleted) {
+              onMessageDeleted(data.id);
+            }
+            break;
           case "user_joined":
             onUserJoined(data.username);
             break;
@@ -118,7 +125,7 @@ export function useWebSocket({
           default:
             console.log("Unknown event:", data);
         }
-      } catch (err) {
+      } catch (_e) {
         console.error("Invalid WS message:", event.data);
       }
     };
@@ -248,6 +255,18 @@ export function useWebSocket({
     }
   };
 
+  const deleteMessage = (messageId: string) => {
+    if (ws.current && isConnected) {
+      ws.current.send(
+        JSON.stringify({
+          type: "delete_message",
+          id: messageId,
+          channel,
+        })
+      );
+    }
+  };
+
   return {
     isConnected,
     connectionStatus,
@@ -256,5 +275,6 @@ export function useWebSocket({
     sendStopTyping,
     switchChannel,
     editMessage,
+    deleteMessage,
   };
 }
