@@ -67,7 +67,7 @@ export function ChannelList({
       ) : (
         channels.map((channel, index) => (
           <button
-            key={channel.id}
+            key={`${channel.id}-${index}`}
             onClick={() => onChannelChange(channel.id)}
             className={`w-full flex items-center space-x-3 px-3 py-2 rounded-md text-left transition-all duration-300 group sidebar-item hover-lift animate-fade-in-scale ${
               activeChannel === channel.id
