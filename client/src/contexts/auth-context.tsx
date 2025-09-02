@@ -63,12 +63,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // Listen for auth changes
     const {
       data: { subscription },
-    } = authService.onAuthStateChange(async (_, session) => {
+    } = authService.onAuthStateChange((_, session) => {
       setSession(session);
 
       if (session?.user) {
-        const user = await authService.getCurrentUser();
-        setUser(user);
+        // Handle user profile fetching separately to avoid blocking auth state changes
+        authService
+          .getCurrentUser()
+          .then((user) => {
+            setUser(user);
+          })
+          .catch((error) => {
+            console.error("Error fetching user profile:", error);
+            setUser(null);
+          });
       } else {
         setUser(null);
       }

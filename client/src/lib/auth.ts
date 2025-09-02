@@ -154,16 +154,20 @@ class AuthService {
       return null;
     }
   }
+  //******** REF: https://github.com/supabase/supabase/issues/35754 ***********//
 
   // Listen to auth state changes
   onAuthStateChange(
     callback: (event: string, session: Session | null) => void
   ) {
-    return supabase.auth.onAuthStateChange(async (event, session) => {
+    return supabase.auth.onAuthStateChange((event, session) => {
+      // Handle online status updates separately to avoid blocking auth state changes
       if (event === "SIGNED_IN" && session?.user) {
-        await this.updateOnlineStatus(true);
+        // Run async operation without blocking the auth state change
+        this.updateOnlineStatus(true).catch(console.error);
       } else if (event === "SIGNED_OUT") {
-        await this.updateOnlineStatus(false);
+        // Run async operation without blocking the auth state change
+        this.updateOnlineStatus(false).catch(console.error);
       }
       callback(event, session);
     });
