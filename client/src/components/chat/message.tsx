@@ -9,6 +9,7 @@ interface MessageProps {
   onUserClick?: (username: string) => void;
   onReply?: (messageId: string, username: string) => void;
   onEdit?: (messageId: string, content: string) => void;
+  onDelete?: (messageId: string) => void;
   currentUsername?: string;
   findMessageById?: (messageId: string) => Message | undefined;
 }
@@ -20,6 +21,7 @@ export function MessageComponent({
   onUserClick,
   onReply,
   onEdit,
+  onDelete,
   currentUsername,
   findMessageById,
 }: MessageProps) {
@@ -108,12 +110,28 @@ export function MessageComponent({
               Reply
             </button>
             {currentUsername === message.username && (
-              <button
-                onClick={() => setIsEditing(true)}
-                className="text-xs text-gray-400 hover:text-yellow-400 px-2 py-1 rounded hover:bg-gray-600/20"
-              >
-                Edit
-              </button>
+              <>
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="text-xs text-gray-400 hover:text-yellow-400 px-2 py-1 rounded hover:bg-gray-600/20"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        "Are you sure you want to delete this message?"
+                      )
+                    ) {
+                      onDelete?.(message.id);
+                    }
+                  }}
+                  className="text-xs text-gray-400 hover:text-red-400 px-2 py-1 rounded hover:bg-gray-600/20"
+                >
+                  Delete
+                </button>
+              </>
             )}
           </div>
         </div>
