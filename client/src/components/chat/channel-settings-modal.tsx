@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, Edit3, Trash2, Settings } from "lucide-react";
+import { X, Edit3, Trash2, Settings, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Channel } from "@/hooks/use-database";
@@ -13,6 +13,7 @@ interface ChannelSettingsModalProps {
     updates: { name?: string; description?: string; is_private?: boolean }
   ) => Promise<void>;
   onDeleteChannel: (channelId: string) => Promise<void>;
+  onLeaveChannel: (channelId: string) => Promise<void>;
   currentUserId: string;
 }
 
@@ -22,6 +23,7 @@ export function ChannelSettingsModal({
   channel,
   onUpdateChannel,
   onDeleteChannel,
+  onLeaveChannel,
   currentUserId,
 }: ChannelSettingsModalProps) {
   const [isEditing, setIsEditing] = useState(false);
@@ -29,6 +31,7 @@ export function ChannelSettingsModal({
   const [channelDescription, setChannelDescription] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isLeaving, setIsLeaving] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -77,7 +80,7 @@ export function ChannelSettingsModal({
     console.log("User confirmed deletion, proceeding...");
     setIsDeleting(true);
     try {
-      console.log("Calling onDeleteChannel prop...");
+      console.log("Calling onDeleteChannel...");
       await onDeleteChannel(channel.id);
       console.log("onDeleteChannel completed successfully");
       onClose();
@@ -86,6 +89,27 @@ export function ChannelSettingsModal({
       alert("Failed to delete channel. Please try again.");
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handleLeave = async () => {
+    if (!channel) return;
+
+    const confirmed = window.confirm(
+      `Are you sure you want to leave the channel "${channel.name}"? You will no longer receive messages from this channel.`
+    );
+
+    if (!confirmed) return;
+
+    setIsLeaving(true);
+    try {
+      await onLeaveChannel(channel.id);
+      onClose();
+    } catch (error) {
+      console.error("Failed to leave channel:", error);
+      alert("Failed to leave channel. Please try again.");
+    } finally {
+      setIsLeaving(false);
     }
   };
 
@@ -119,10 +143,49 @@ export function ChannelSettingsModal({
         </div>
 
         {!isOwner ? (
-          <div className="text-center py-8">
-            <p className="text-gray-400">
-              Only the channel owner can modify channel settings.
-            </p>
+          <div className="space-y-4">
+            {/* Channel info for non-owners */}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Channel Name
+              </label>
+              <div className="text-white bg-gray-700/50 px-3 py-2 rounded border border-gray-600">
+                {channel.name}
+              </div>
+            </div>
+
+            {channel.description && (
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Description
+                </label>
+                <div className="text-gray-300 bg-gray-700/50 px-3 py-2 rounded border border-gray-600">
+                  {channel.description}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Channel Type
+              </label>
+              <div className="text-gray-300 bg-gray-700/50 px-3 py-2 rounded border border-gray-600">
+                {channel.is_private ? "Private" : "Public"}
+              </div>
+            </div>
+
+            {/* Leave channel button for non-owners */}
+            <div className="pt-4 border-t border-gray-700">
+              <Button
+                onClick={handleLeave}
+                disabled={isLeaving}
+                variant="outline"
+                className="w-full border-yellow-600 text-yellow-400 hover:bg-yellow-600/10 hover:text-yellow-300 flex items-center justify-center space-x-2"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>{isLeaving ? "Leaving..." : "Leave Channel"}</span>
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="space-y-4">
