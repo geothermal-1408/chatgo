@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import url("https://fonts.googleapis.com/css2?family=Pacifico&display=swap");
 
 @layer base {
   :root {
@@ -42,5 +43,68 @@
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+  .cursive-highlight {
+    font-family: "Pacifico", cursive;
+    letter-spacing: 0.2px;
+  }
+  .hero-geo-dots {
+    background-image: radial-gradient(#2563eb 1.5px, transparent 1.5px);
+    background-size: 24px 24px;
+    background-position: 0 0;
+  }
+
+  /* Modern geometric background patterns */
+  .modern-bg-pattern {
+    background-image: radial-gradient(
+        circle at 20% 80%,
+        rgba(37, 99, 235, 0.1) 0%,
+        transparent 50%
+      ),
+      radial-gradient(
+        circle at 80% 20%,
+        rgba(139, 92, 246, 0.1) 0%,
+        transparent 50%
+      ),
+      radial-gradient(
+        circle at 40% 40%,
+        rgba(59, 130, 246, 0.05) 0%,
+        transparent 50%
+      );
+  }
+
+  .floating-shapes::before {
+    content: "";
+    position: absolute;
+    top: 10%;
+    right: 15%;
+    width: 60px;
+    height: 60px;
+    border: 2px solid rgba(37, 99, 235, 0.2);
+    border-radius: 12px;
+    transform: rotate(45deg);
+    animation: float 6s ease-in-out infinite;
+  }
+
+  .floating-shapes::after {
+    content: "";
+    position: absolute;
+    bottom: 20%;
+    left: 10%;
+    width: 40px;
+    height: 40px;
+    background: rgba(139, 92, 246, 0.1);
+    border-radius: 50%;
+    animation: float 8s ease-in-out infinite reverse;
+  }
+
+  @keyframes float {
+    0%,
+    100% {
+      transform: translateY(0) rotate(45deg);
+    }
+    50% {
+      transform: translateY(-20px) rotate(45deg);
+    }
   }
 }

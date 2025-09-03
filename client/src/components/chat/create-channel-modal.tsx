@@ -111,7 +111,7 @@ export function CreateChannelModal({
                 onClick={() => setIsPrivate(false)}
                 className={`flex-1 flex items-center justify-center space-x-2 p-3 rounded-md border transition-colors ${
                   !isPrivate
-                    ? "bg-purple-500/20 border-purple-500 text-purple-300"
+                    ? "bg-blue-500/20 border-blue-500 text-blue-300"
                     : "bg-gray-800 border-gray-600 text-gray-400 hover:bg-gray-700"
                 }`}
               >
@@ -123,7 +123,7 @@ export function CreateChannelModal({
                 onClick={() => setIsPrivate(true)}
                 className={`flex-1 flex items-center justify-center space-x-2 p-3 rounded-md border transition-colors ${
                   isPrivate
-                    ? "bg-purple-500/20 border-purple-500 text-purple-300"
+                    ? "bg-blue-500/20 border-blue-500 text-blue-300"
                     : "bg-gray-800 border-gray-600 text-gray-400 hover:bg-gray-700"
                 }`}
               >
@@ -149,7 +149,7 @@ export function CreateChannelModal({
               placeholder="Enter channel name"
               maxLength={50}
               disabled={isCreating}
-              className="bg-gray-800 border-gray-600 text-white placeholder-gray-400 focus:border-purple-500"
+              className="bg-gray-800 border-gray-600 text-white placeholder-gray-400 focus:border-blue-500"
             />
             <p className="text-xs text-gray-400">{name.length}/50 characters</p>
           </div>
@@ -170,7 +170,7 @@ export function CreateChannelModal({
               placeholder="What's this channel about?"
               maxLength={200}
               disabled={isCreating}
-              className="bg-gray-800 border-gray-600 text-white placeholder-gray-400 focus:border-purple-500"
+              className="bg-gray-800 border-gray-600 text-white placeholder-gray-400 focus:border-blue-500"
             />
           </div>
 
@@ -188,7 +188,7 @@ export function CreateChannelModal({
             <Button
               type="submit"
               disabled={isCreating || !name.trim()}
-              className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
+              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
             >
               {isCreating ? "Creating..." : "Create Channel"}
             </Button>

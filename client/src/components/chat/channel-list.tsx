@@ -71,7 +71,7 @@ export function ChannelList({
             onClick={() => onChannelChange(channel.id)}
             className={`w-full flex items-center space-x-3 px-3 py-2 rounded-md text-left transition-all duration-300 group sidebar-item hover-lift animate-fade-in-scale ${
               activeChannel === channel.id
-                ? "bg-gradient-to-r from-purple-500/20 to-blue-500/20 text-white shadow-lg shadow-purple-500/10 active animate-pulse-glow"
+                ? "bg-gradient-to-r from-blue-500/20 to-blue-500/20 text-white shadow-lg shadow-blue-500/10 active animate-pulse-glow"
                 : channel.isJoined
                 ? "text-gray-300 hover:bg-gray-700/50 hover:text-white"
                 : "text-gray-400 hover:bg-gray-700/30 hover:text-gray-300 opacity-75"

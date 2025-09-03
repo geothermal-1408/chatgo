@@ -36,7 +36,7 @@ export function AuthModal({ onAuthenticate }: AuthModalProps) {
       <div className="w-full max-w-md animate-in fade-in-0 zoom-in-95 duration-300">
         <Card className="bg-gray-900/90 backdrop-blur-md border-gray-700/50 shadow-2xl shadow-purple-500/10">
           <CardHeader className="text-center space-y-4">
-            <div className="mx-auto w-16 h-16 bg-gradient-to-br from-purple-500 to-blue-500 rounded-full flex items-center justify-center">
+            <div className="mx-auto w-16 h-16 bg-gray-900 border border-blue-600/30 rounded-xl flex items-center justify-center shadow-[0_0_0_6px_rgba(37,99,235,0.08)]">
               <MessageCircle className="w-8 h-8 text-white" />
             </div>
             <div>
@@ -79,7 +79,7 @@ export function AuthModal({ onAuthenticate }: AuthModalProps) {
               <Button
                 type="submit"
                 disabled={!username.trim() || isLoading}
-                className="w-full bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white font-semibold py-3 shadow-lg shadow-purple-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isLoading ? (
                   <div className="flex items-center space-x-2">

@@ -8,6 +8,7 @@ interface ChatHeaderProps {
   onlineUserCount: number;
   description?: string;
   isChannelOwner?: boolean;
+  showChannelSettings?: boolean;
   onOpenChannelSettings?: () => void;
 }
 
@@ -16,7 +17,7 @@ export function ChatHeader({
   connectionStatus,
   onlineUserCount,
   description,
-  isChannelOwner,
+  showChannelSettings,
   onOpenChannelSettings,
 }: ChatHeaderProps) {
   const getConnectionStatusColor = () => {
@@ -33,9 +34,11 @@ export function ChatHeader({
   };
 
   return (
-    <div className="h-16 border-b border-gray-700/50 flex items-center px-6 bg-gray-900/20 backdrop-blur-sm">
+    <div className="h-16 border-b border-gray-700/50 flex items-center px-6 bg-gray-900/50 backdrop-blur-sm">
       <div className="flex items-center space-x-3">
-        <Hash className="w-5 h-5 text-gray-400" />
+        <div className="w-8 h-8 rounded-lg bg-gray-900 border border-blue-600/30 flex items-center justify-center">
+          <Hash className="w-4 h-4 text-blue-400" />
+        </div>
         <h2 className="text-xl font-semibold text-white">{activeChannel}</h2>
         <div className="w-px h-6 bg-gray-600"></div>
         <p className="text-sm text-gray-400">
@@ -43,7 +46,7 @@ export function ChatHeader({
         </p>
       </div>
       <div className="ml-auto flex items-center space-x-2">
-        {isChannelOwner && (
+        {showChannelSettings && (
           <button
             onClick={onOpenChannelSettings}
             className="p-2 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-lg transition-colors"
@@ -55,8 +58,10 @@ export function ChatHeader({
         <div
           className={`w-2 h-2 rounded-full ${getConnectionStatusColor()}`}
         ></div>
-        <Users className="w-5 h-5 text-gray-400" />
-        <span className="text-sm text-gray-400">{onlineUserCount}</span>
+        <div className="flex items-center gap-1 text-gray-400">
+          <Users className="w-4 h-4" />
+          <span className="text-sm">{onlineUserCount}</span>
+        </div>
       </div>
     </div>
   );

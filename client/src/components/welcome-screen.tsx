@@ -5,19 +5,28 @@ import { MessageCircle, Users, Zap, Shield, ArrowRight } from "lucide-react";
 
 export function WelcomeScreen() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white overflow-hidden relative">
-      {/* Background decorative elements */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl" />
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-gradient-to-r from-purple-500/5 to-blue-500/5 rounded-full blur-3xl" />
+    <div className="min-h-screen bg-gray-950 text-white overflow-hidden relative">
+      {/* Hero geometric background */}
+      <div
+        className="absolute inset-0 overflow-hidden pointer-events-none"
+        aria-hidden="true"
+      >
+        {/* Triangle */}
+        <div
+          className="absolute -top-24 -left-24 w-64 h-64 bg-blue-600/20 rotate-12"
+          style={{ clipPath: "polygon(0 0, 100% 0, 0 100%)" }}
+        />
+        {/* Rotated square outline */}
+        <div className="absolute top-16 right-10 w-40 h-40 border-2 border-blue-600/30 rotate-45 rounded-sm" />
+        {/* Dot grid base */}
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-full h-40 hero-geo-dots opacity-20 scale-110" />
       </div>
 
       <div className="relative z-10">
         {/* Header */}
         <header className="p-6">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-gray-900 border border-blue-600/30">
               <img src="./logo-removebg.png" alt="Logo" height={90} />
             </div>
             <span className="text-xl font-bold">ChatGo</span>
@@ -29,14 +38,14 @@ export function WelcomeScreen() {
           <div className="max-w-4xl mx-auto text-center">
             {/* Hero Section */}
             <div className="mb-16">
-              <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 mb-8 shadow-lg shadow-purple-500/25">
-                <MessageCircle className="w-10 h-10 text-white" />
+              <div className="inline-flex items-center justify-center w-20 h-20 rounded-xl bg-gray-900 border border-blue-600/40 shadow-[0_0_0_6px_rgba(37,99,235,0.08)] mb-8">
+                <MessageCircle className="w-10 h-10 text-blue-400" />
               </div>
 
-              <h1 className="text-5xl md:text-6xl font-bold mb-6 bg-gradient-to-r from-white via-gray-200 to-gray-400 bg-clip-text text-transparent leading-tight">
+              <h1 className="text-5xl md:text-6xl font-bold mb-6 leading-tight">
                 Connect, Chat,
                 <br />
-                <span className="bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">
+                <span className="cursive-highlight text-amber-400">
                   Collaborate
                 </span>
               </h1>
@@ -51,15 +60,9 @@ export function WelcomeScreen() {
                 <Button
                   asChild
                   size="lg"
-                  className="bg-gradient-to-r from-purple-500 to-blue-500 
-             hover:from-purple-600 hover:to-blue-600 
-             text-white px-8 py-3 rounded-lg font-semibold 
-             shadow-lg shadow-purple-500/25 
-             transition-colors 
-             duration-500 ease-in-out 
-             hover:shadow-xl hover:shadow-purple-500/40"
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-semibold shadow-lg/50 transition-colors"
                 >
-                  <Link to="/signup" className="flex items-center space-x-2">
+                  <Link to="/signup" className="flex items-center gap-2">
                     <span>Get Started</span>
                     <ArrowRight className="w-4 h-4" />
                   </Link>
@@ -69,7 +72,7 @@ export function WelcomeScreen() {
                   asChild
                   variant="outline"
                   size="lg"
-                  className="border-gray-600 text-gray-300 hover:bg-gray-800 hover:text-white px-8 py-3 rounded-lg font-semibold transition-all duration-200"
+                  className="border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-white px-8 py-3 rounded-lg font-semibold transition-colors bg-transparent"
                 >
                   <Link to="/signin">Sign In</Link>
                 </Button>
@@ -78,10 +81,10 @@ export function WelcomeScreen() {
 
             {/* Features Grid */}
             <div className="grid md:grid-cols-3 gap-8 mb-16">
-              <Card className="bg-gray-800/30 backdrop-blur-sm border-gray-700/50 hover:bg-gray-800/50 transition-all duration-300 group">
+              <Card className="bg-gray-900/60 backdrop-blur-sm border border-gray-800 hover:bg-gray-900 transition-colors group">
                 <CardContent className="p-6 text-center">
-                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-gradient-to-br from-purple-500/20 to-purple-600/20 mb-4 group-hover:from-purple-500/30 group-hover:to-purple-600/30 transition-all duration-300">
-                    <MessageCircle className="w-6 h-6 text-purple-400" />
+                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-gray-900 border border-blue-600/30 mb-4">
+                    <MessageCircle className="w-6 h-6 text-blue-400" />
                   </div>
                   <h3 className="text-xl font-semibold mb-2 text-white">
                     Real-time Chat
@@ -93,9 +96,9 @@ export function WelcomeScreen() {
                 </CardContent>
               </Card>
 
-              <Card className="bg-gray-800/30 backdrop-blur-sm border-gray-700/50 hover:bg-gray-800/50 transition-all duration-300 group">
+              <Card className="bg-gray-900/60 backdrop-blur-sm border border-gray-800 hover:bg-gray-900 transition-colors group">
                 <CardContent className="p-6 text-center">
-                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-gradient-to-br from-blue-500/20 to-blue-600/20 mb-4 group-hover:from-blue-500/30 group-hover:to-blue-600/30 transition-all duration-300">
+                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-gray-900 border border-blue-600/30 mb-4">
                     <Users className="w-6 h-6 text-blue-400" />
                   </div>
                   <h3 className="text-xl font-semibold mb-2 text-white">
@@ -108,10 +111,10 @@ export function WelcomeScreen() {
                 </CardContent>
               </Card>
 
-              <Card className="bg-gray-800/30 backdrop-blur-sm border-gray-700/50 hover:bg-gray-800/50 transition-all duration-300 group">
+              <Card className="bg-gray-900/60 backdrop-blur-sm border border-gray-800 hover:bg-gray-900 transition-colors group">
                 <CardContent className="p-6 text-center">
-                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-gradient-to-br from-green-500/20 to-green-600/20 mb-4 group-hover:from-green-500/30 group-hover:to-green-600/30 transition-all duration-300">
-                    <Zap className="w-6 h-6 text-green-400" />
+                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-gray-900 border border-blue-600/30 mb-4">
+                    <Zap className="w-6 h-6 text-blue-400" />
                   </div>
                   <h3 className="text-xl font-semibold mb-2 text-white">
                     Lightning Fast
@@ -125,9 +128,9 @@ export function WelcomeScreen() {
             </div>
 
             {/* Bottom CTA */}
-            <div className="bg-gradient-to-r from-gray-800/50 to-gray-700/50 backdrop-blur-sm rounded-2xl p-8 border border-gray-600/30">
+            <div className="bg-gray-900/70 backdrop-blur-sm rounded-2xl p-8 border border-gray-800">
               <div className="flex items-center justify-center mb-4">
-                <Shield className="w-8 h-8 text-green-400 mr-3" />
+                <Shield className="w-8 h-8 text-blue-400 mr-3" />
                 <h3 className="text-2xl font-bold text-white">
                   Secure & Private
                 </h3>
@@ -139,7 +142,7 @@ export function WelcomeScreen() {
               </p>
               <Button
                 asChild
-                className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white px-6 py-2 rounded-lg font-semibold shadow-lg shadow-green-500/25 transition-all duration-200"
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-semibold transition-colors"
               >
                 <Link to="/signup">Start Chatting Today</Link>
               </Button>

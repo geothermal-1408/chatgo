@@ -121,219 +121,251 @@ export function SignUpSupabase() {
   const passwordStrength = getPasswordStrength(formData.password);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <Card className="bg-gray-900/90 backdrop-blur-md border-gray-700/50 shadow-2xl shadow-purple-500/10">
-          <CardHeader className="text-center space-y-4">
+    <div className="min-h-screen bg-gray-950 text-white overflow-hidden relative">
+      {/* Modern geometric background */}
+      <div
+        className="absolute inset-0 overflow-hidden pointer-events-none modern-bg-pattern"
+        aria-hidden="true"
+      >
+        {/* Triangle */}
+        <div
+          className="absolute -top-24 -right-24 w-64 h-64 bg-blue-600/20 rotate-45"
+          style={{ clipPath: "polygon(0 0, 100% 0, 0 100%)" }}
+        />
+        {/* Rotated square outline */}
+        <div className="absolute top-20 left-10 w-32 h-32 border-2 border-blue-600/30 rotate-12 rounded-sm" />
+        {/* Small floating elements */}
+        <div className="absolute bottom-16 left-20 w-20 h-20 border border-blue-500/20 rounded-xl rotate-45" />
+        <div className="absolute top-1/4 right-16 w-12 h-12 bg-blue-500/10 rounded-full" />
+      </div>
+
+      <div className="relative z-10 flex items-center justify-center min-h-screen p-4">
+        <div className="w-full max-w-md">
+          {/* Header */}
+          <div className="text-center mb-8">
             <Link
               to="/"
-              className="absolute top-4 left-4 text-gray-400 hover:text-white transition-colors"
+              className="inline-flex items-center gap-3 mb-6 text-gray-400 hover:text-white transition-colors"
             >
               <ArrowLeft className="w-5 h-5" />
+              <span>Back to Home</span>
             </Link>
-            <div className="mx-auto w-16 h-16 bg-gradient-to-br from-purple-500 to-blue-500 rounded-full flex items-center justify-center">
-              <MessageCircle className="w-8 h-8 text-white" />
+            <div className="flex items-center justify-center gap-3 mb-6">
+              <div className="w-12 h-12 rounded-lg flex items-center justify-center bg-gray-900 border border-blue-600/30">
+                <img src="./logo-removebg.png" alt="Logo" height={90} />
+              </div>
+              <span className="text-2xl font-bold">ChatGo</span>
             </div>
-            <div>
-              <CardTitle className="text-2xl font-bold text-white">
-                Create Account
-              </CardTitle>
-              <CardDescription className="text-gray-400 mt-2">
-                Join the conversation
-              </CardDescription>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {errors.general && (
-                <div
-                  className={`p-3 border rounded-lg ${
-                    errors.general.includes("Success")
-                      ? "bg-green-500/10 border-green-500/20"
-                      : "bg-red-500/10 border-red-500/20"
-                  }`}
-                >
-                  <p
-                    className={`text-sm ${
+          </div>
+
+          <Card className="bg-gray-900/70 backdrop-blur-sm border border-gray-800 shadow-2xl shadow-blue-500/10">
+            <CardHeader className="text-center space-y-4">
+              <div className="mx-auto w-16 h-16 bg-gray-900 border border-blue-600/40 rounded-xl flex items-center justify-center shadow-[0_0_0_6px_rgba(37,99,235,0.08)]">
+                <MessageCircle className="w-8 h-8 text-blue-400" />
+              </div>
+              <div>
+                <CardTitle className="text-2xl font-bold text-white">
+                  Create Account
+                </CardTitle>
+                <CardDescription className="text-gray-400 mt-2">
+                  Join the conversation
+                </CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {errors.general && (
+                  <div
+                    className={`p-3 border rounded-lg ${
                       errors.general.includes("Success")
-                        ? "text-green-400"
-                        : "text-red-400"
+                        ? "bg-green-500/10 border-green-500/20"
+                        : "bg-red-500/10 border-red-500/20"
                     }`}
                   >
-                    {errors.general}
-                  </p>
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">
-                  Username
-                </label>
-                <Input
-                  name="username"
-                  type="text"
-                  placeholder="Enter your username"
-                  value={formData.username}
-                  onChange={handleChange}
-                  className="bg-gray-800/50 border-gray-600 text-white placeholder-gray-400 focus:border-purple-500"
-                  disabled={loading}
-                />
-                {errors.username && (
-                  <p className="text-red-400 text-sm">{errors.username}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">
-                  Display Name (Optional)
-                </label>
-                <Input
-                  name="displayName"
-                  type="text"
-                  placeholder="Enter your display name"
-                  value={formData.displayName}
-                  onChange={handleChange}
-                  className="bg-gray-800/50 border-gray-600 text-white placeholder-gray-400 focus:border-purple-500"
-                  disabled={loading}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">
-                  Email
-                </label>
-                <Input
-                  name="email"
-                  type="email"
-                  placeholder="Enter your email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  className="bg-gray-800/50 border-gray-600 text-white placeholder-gray-400 focus:border-purple-500"
-                  disabled={loading}
-                />
-                {errors.email && (
-                  <p className="text-red-400 text-sm">{errors.email}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">
-                  Password
-                </label>
-                <div className="relative">
-                  <Input
-                    name="password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Enter your password"
-                    value={formData.password}
-                    onChange={handleChange}
-                    className="bg-gray-800/50 border-gray-600 text-white placeholder-gray-400 focus:border-purple-500 pr-10"
-                    disabled={loading}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
-                  >
-                    {showPassword ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
-                  </button>
-                </div>
-                {formData.password && (
-                  <div className="space-y-1">
-                    <div className="flex space-x-1">
-                      {[1, 2, 3].map((level) => (
-                        <div
-                          key={level}
-                          className={`h-1 flex-1 rounded-full ${
-                            level <= passwordStrength.strength
-                              ? level === 1
-                                ? "bg-red-500"
-                                : level === 2
-                                ? "bg-yellow-500"
-                                : "bg-green-500"
-                              : "bg-gray-600"
-                          }`}
-                        />
-                      ))}
-                    </div>
-                    <p className="text-xs text-gray-400">
-                      Password strength: {passwordStrength.label}
+                    <p
+                      className={`text-sm ${
+                        errors.general.includes("Success")
+                          ? "text-green-400"
+                          : "text-red-400"
+                      }`}
+                    >
+                      {errors.general}
                     </p>
                   </div>
                 )}
-                {errors.password && (
-                  <p className="text-red-400 text-sm">{errors.password}</p>
-                )}
-              </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">
-                  Confirm Password
-                </label>
-                <div className="relative">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-300">
+                    Username
+                  </label>
                   <Input
-                    name="confirmPassword"
-                    type={showConfirmPassword ? "text" : "password"}
-                    placeholder="Confirm your password"
-                    value={formData.confirmPassword}
+                    name="username"
+                    type="text"
+                    placeholder="Enter your username"
+                    value={formData.username}
                     onChange={handleChange}
-                    className="bg-gray-800/50 border-gray-600 text-white placeholder-gray-400 focus:border-purple-500 pr-10"
+                    className="bg-gray-800/50 border-gray-600 text-white placeholder-gray-400 focus:border-blue-500"
                     disabled={loading}
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
-                  >
-                    {showConfirmPassword ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
-                  </button>
+                  {errors.username && (
+                    <p className="text-red-400 text-sm">{errors.username}</p>
+                  )}
                 </div>
-                {formData.confirmPassword &&
-                  formData.password === formData.confirmPassword && (
-                    <div className="flex items-center space-x-1">
-                      <Check className="w-3 h-3 text-green-500" />
-                      <span className="text-xs text-green-500">
-                        Passwords match
-                      </span>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-300">
+                    Display Name (Optional)
+                  </label>
+                  <Input
+                    name="displayName"
+                    type="text"
+                    placeholder="Enter your display name"
+                    value={formData.displayName}
+                    onChange={handleChange}
+                    className="bg-gray-800/50 border-gray-600 text-white placeholder-gray-400 focus:border-blue-500"
+                    disabled={loading}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-300">
+                    Email
+                  </label>
+                  <Input
+                    name="email"
+                    type="email"
+                    placeholder="Enter your email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    className="bg-gray-800/50 border-gray-600 text-white placeholder-gray-400 focus:border-blue-500"
+                    disabled={loading}
+                  />
+                  {errors.email && (
+                    <p className="text-red-400 text-sm">{errors.email}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-300">
+                    Password
+                  </label>
+                  <div className="relative">
+                    <Input
+                      name="password"
+                      type={showPassword ? "text" : "password"}
+                      placeholder="Enter your password"
+                      value={formData.password}
+                      onChange={handleChange}
+                      className="bg-gray-800/50 border-gray-600 text-white placeholder-gray-400 focus:border-blue-500 pr-10"
+                      disabled={loading}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                    >
+                      {showPassword ? (
+                        <EyeOff className="w-4 h-4" />
+                      ) : (
+                        <Eye className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                  {formData.password && (
+                    <div className="space-y-1">
+                      <div className="flex space-x-1">
+                        {[1, 2, 3].map((level) => (
+                          <div
+                            key={level}
+                            className={`h-1 flex-1 rounded-full ${
+                              level <= passwordStrength.strength
+                                ? level === 1
+                                  ? "bg-red-500"
+                                  : level === 2
+                                  ? "bg-yellow-500"
+                                  : "bg-green-500"
+                                : "bg-gray-600"
+                            }`}
+                          />
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-400">
+                        Password strength: {passwordStrength.label}
+                      </p>
                     </div>
                   )}
-                {errors.confirmPassword && (
-                  <p className="text-red-400 text-sm">
-                    {errors.confirmPassword}
-                  </p>
-                )}
-              </div>
+                  {errors.password && (
+                    <p className="text-red-400 text-sm">{errors.password}</p>
+                  )}
+                </div>
 
-              <Button
-                type="submit"
-                className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-medium py-2 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
-                disabled={loading}
-              >
-                {loading ? "Creating Account..." : "Create Account"}
-              </Button>
-            </form>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-300">
+                    Confirm Password
+                  </label>
+                  <div className="relative">
+                    <Input
+                      name="confirmPassword"
+                      type={showConfirmPassword ? "text" : "password"}
+                      placeholder="Confirm your password"
+                      value={formData.confirmPassword}
+                      onChange={handleChange}
+                      className="bg-gray-800/50 border-gray-600 text-white placeholder-gray-400 focus:border-blue-500 pr-10"
+                      disabled={loading}
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowConfirmPassword(!showConfirmPassword)
+                      }
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                    >
+                      {showConfirmPassword ? (
+                        <EyeOff className="w-4 h-4" />
+                      ) : (
+                        <Eye className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                  {formData.confirmPassword &&
+                    formData.password === formData.confirmPassword && (
+                      <div className="flex items-center space-x-1">
+                        <Check className="w-3 h-3 text-green-500" />
+                        <span className="text-xs text-green-500">
+                          Passwords match
+                        </span>
+                      </div>
+                    )}
+                  {errors.confirmPassword && (
+                    <p className="text-red-400 text-sm">
+                      {errors.confirmPassword}
+                    </p>
+                  )}
+                </div>
 
-            <div className="mt-6 text-center">
-              <p className="text-gray-400">
-                Already have an account?{" "}
-                <Link
-                  to="/signin"
-                  className="text-purple-400 hover:text-purple-300 font-medium"
+                <Button
+                  type="submit"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded-lg transition-colors shadow-lg"
+                  disabled={loading}
                 >
-                  Sign in
-                </Link>
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+                  {loading ? "Creating Account..." : "Create Account"}
+                </Button>
+              </form>
+
+              <div className="mt-6 text-center">
+                <p className="text-gray-400">
+                  Already have an account?{" "}
+                  <Link
+                    to="/signin"
+                    className="text-blue-400 hover:text-blue-300 font-medium"
+                  >
+                    Sign in
+                  </Link>
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );
