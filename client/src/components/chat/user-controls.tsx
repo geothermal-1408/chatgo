@@ -1,15 +1,14 @@
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Settings, Mic, MicOff, Headphones, LogOut } from "lucide-react";
 
 interface UserControlsProps {
-  user: { username: string };
+  user: { username: string; avatar_url?: string };
   connectionStatus: "connecting" | "connected" | "disconnected" | "error";
   isConnected: boolean;
   isMuted: boolean;
   onMuteToggle: () => void;
   onLogout: () => void;
-  getAvatarColor: (username: string) => string;
 }
 
 export function UserControls({
@@ -19,7 +18,6 @@ export function UserControls({
   isMuted,
   onMuteToggle,
   onLogout,
-  getAvatarColor,
 }: UserControlsProps) {
   const getConnectionStatusText = () => {
     switch (connectionStatus) {
@@ -37,13 +35,12 @@ export function UserControls({
   return (
     <div className="p-3 border-t border-gray-700/50">
       <div className="flex items-center justify-between bg-gray-800/50 rounded-lg p-2">
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center">
           <Avatar className="w-8 h-8">
-            <AvatarFallback
-              className={`${getAvatarColor(
-                user.username
-              )} text-white text-sm font-semibold`}
-            >
+            {user.avatar_url && (
+              <AvatarImage src={user.avatar_url} alt={user.username} />
+            )}
+            <AvatarFallback className="bg-gray-900 border border-blue-600/30 text-blue-400 text-sm font-semibold">
               {user.username[0].toUpperCase()}
             </AvatarFallback>
           </Avatar>

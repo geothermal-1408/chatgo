@@ -42,6 +42,7 @@ function AppRoutes() {
                 username: user.username,
                 status: "online",
                 bio: user.display_name || "",
+                avatar_url: user.avatar_url,
               }}
             />
           ) : (

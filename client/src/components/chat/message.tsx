@@ -1,4 +1,4 @@
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { Message } from "@/hooks/use-websocket";
 import { useState } from "react";
 
@@ -12,6 +12,7 @@ interface MessageProps {
   onDelete?: (messageId: string) => void;
   currentUsername?: string;
   findMessageById?: (messageId: string) => Message | undefined;
+  getUserAvatarUrl?: (username: string) => string | undefined;
 }
 
 export function MessageComponent({
@@ -24,6 +25,7 @@ export function MessageComponent({
   onDelete,
   currentUsername,
   findMessageById,
+  getUserAvatarUrl,
 }: MessageProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
@@ -37,7 +39,7 @@ export function MessageComponent({
         return (
           <span
             key={index}
-            className="bg-purple-500/20 text-purple-300 px-1 rounded cursor-pointer hover:bg-purple-500/30 transition-all duration-200 hover:scale-105"
+            className="bg-blue-500/20 text-blue-300 px-1 rounded cursor-pointer hover:bg-blue-500/30 transition-all duration-200 hover:scale-105"
             onClick={() => onUserClick?.(part)}
           >
             @{part}
@@ -71,6 +73,12 @@ export function MessageComponent({
         onClick={() => onUserClick?.(message.username)}
       >
         <Avatar className="w-10 h-10 mt-1">
+          {(message.avatar_url || getUserAvatarUrl?.(message.username)) && (
+            <AvatarImage
+              src={message.avatar_url || getUserAvatarUrl?.(message.username)}
+              alt={message.username}
+            />
+          )}
           <AvatarFallback
             className={`${
               message.type === "user_joined" || message.type === "user_left"
@@ -78,7 +86,7 @@ export function MessageComponent({
                   ? "bg-gradient-to-br from-green-500 to-emerald-500"
                   : message.type === "user_left"
                   ? "bg-gradient-to-br from-red-500 to-orange-500"
-                  : "bg-gradient-to-br from-purple-500 to-blue-500"
+                  : "bg-gradient-to-br from-blue-500 to-indigo-500"
                 : getAvatarColor(message.username)
             } text-white font-semibold transition-all duration-300`}
           >

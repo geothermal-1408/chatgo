@@ -1,7 +1,7 @@
 import type React from "react";
 
 import { useState } from "react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Search } from "lucide-react";
 import { UserContextMenu } from "./user-context-menu";
@@ -13,10 +13,11 @@ interface User {
   role?: string;
   bio?: string;
   joinedAt?: string;
+  avatar_url?: string;
 }
 
 interface UserListProps {
-  currentUser: { username: string };
+  currentUser: { username: string; avatar_url?: string };
   onlineUsers: User[];
   connectionStatus: "connecting" | "connected" | "disconnected" | "error";
   isConnected: boolean;
@@ -131,6 +132,12 @@ UserListProps) {
         >
           <div className="relative">
             <Avatar className="w-8 h-8 avatar-interactive">
+              {currentUser.avatar_url && (
+                <AvatarImage
+                  src={currentUser.avatar_url}
+                  alt={currentUser.username}
+                />
+              )}
               <AvatarFallback
                 className={`${getAvatarColor(
                   currentUser.username
@@ -166,6 +173,12 @@ UserListProps) {
           >
             <div className="relative">
               <Avatar className="w-8 h-8 avatar-interactive">
+                {onlineUser.avatar_url && (
+                  <AvatarImage
+                    src={onlineUser.avatar_url}
+                    alt={onlineUser.username}
+                  />
+                )}
                 <AvatarFallback
                   className={`${getAvatarColor(
                     onlineUser.username

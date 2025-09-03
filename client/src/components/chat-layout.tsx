@@ -14,6 +14,7 @@ import { ChannelSettingsModal } from "@/components/chat/channel-settings-modal";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
+import { authService } from "@/lib/auth";
 
 interface User {
   id: string;
@@ -64,6 +65,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     updateChannel,
     deleteChannel,
     joinChannel,
+    leaveChannel,
     loading: channelsLoading,
   } = useChannels();
 
@@ -120,18 +122,42 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
   );
 
   const handleUserJoined = useCallback(
-    (username: string) => {
+    async (username: string) => {
       setOnlineUsers((prev) => {
         const userExists = prev.some((user) => user.username === username);
         if (userExists) {
           return prev;
         }
+
+        // Create a basic user first, then update with profile data
         const newUser: User = {
           id: Math.random().toString(36).substring(2, 15),
           username,
           status: "online",
           joinedAt: new Date().toISOString(),
         };
+
+        // Fetch profile data asynchronously
+        authService
+          .getUserProfile(username)
+          .then((profile) => {
+            if (profile) {
+              setOnlineUsers((current) =>
+                current.map((u) =>
+                  u.username === username
+                    ? {
+                        ...u,
+                        avatar_url: profile.avatar_url,
+                        bio: profile.bio,
+                        display_name: profile.display_name,
+                      }
+                    : u
+                )
+              );
+            }
+          })
+          .catch(console.error);
+
         return [...prev, newUser];
       });
 
@@ -171,15 +197,35 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     [activeChannelId]
   );
 
-  const handleUserList = useCallback((usernames: string[]) => {
-    // ✅ FIX: Handle initial user list when joining a channel
-    const users: User[] = usernames.map((username) => ({
-      id: Math.random().toString(36).substring(2, 15),
-      username,
-      status: "online",
-      joinedAt: new Date().toISOString(),
-    }));
-    setOnlineUsers(users);
+  const handleUserList = useCallback(async (usernames: string[]) => {
+    // ✅ FIX: Handle initial user list when joining a channel with avatar URLs
+    try {
+      const userProfiles = await Promise.all(
+        usernames.map(async (username) => {
+          const profile = await authService.getUserProfile(username);
+          return {
+            id: profile?.id || Math.random().toString(36).substring(2, 15),
+            username,
+            status: "online",
+            joinedAt: new Date().toISOString(),
+            avatar_url: profile?.avatar_url,
+            bio: profile?.bio,
+            display_name: profile?.display_name,
+          };
+        })
+      );
+      setOnlineUsers(userProfiles);
+    } catch (error) {
+      console.error("Error fetching user profiles:", error);
+      // Fallback to basic user objects
+      const users: User[] = usernames.map((username) => ({
+        id: Math.random().toString(36).substring(2, 15),
+        username,
+        status: "online",
+        joinedAt: new Date().toISOString(),
+      }));
+      setOnlineUsers(users);
+    }
   }, []);
 
   const handleTyping = useCallback((username: string) => {
@@ -232,18 +278,18 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     onUserLeft: handleUserLeft,
     onTyping: handleTyping,
     onStopTyping: handleStopTyping,
-    onUserList: handleUserList, // ✅ FIX: Added user list handler
-    onMessageEdited: handleMessageEdited, // ✅ NEW: Added message edit handler
-    onMessageDeleted: handleMessageDeleted, // ✅ NEW: Added message delete handler
+    onUserList: handleUserList,
+    onMessageEdited: handleMessageEdited,
+    onMessageDeleted: handleMessageDeleted,
   });
 
   const getAvatarColor = (username: string) => {
     const colors = [
-      "bg-gradient-to-br from-purple-500 to-pink-500",
       "bg-gradient-to-br from-blue-500 to-cyan-500",
+      "bg-gradient-to-br from-blue-500 to-indigo-500",
       "bg-gradient-to-br from-green-500 to-emerald-500",
       "bg-gradient-to-br from-orange-500 to-red-500",
-      "bg-gradient-to-br from-indigo-500 to-purple-500",
+      "bg-gradient-to-br from-indigo-500 to-blue-500",
     ];
     const index = username.charCodeAt(0) % colors.length;
     return colors[index];
@@ -391,6 +437,39 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     }
   };
 
+  const handleLeaveChannel = async (channelId: string) => {
+    try {
+      await leaveChannel(channelId);
+
+      // If the user left the active channel, switch to another joined channel
+      if (channelId === activeChannelId) {
+        const joinedChannels = channels.filter(
+          (ch) => ch.id !== channelId && ch.isJoined
+        );
+        if (joinedChannels.length > 0) {
+          setActiveChannelId(joinedChannels[0].id);
+          setActiveChannelName(joinedChannels[0].name);
+        } else {
+          // Find the first available public channel to auto-join
+          const publicChannels = channels.filter((ch) => !ch.is_private);
+          if (publicChannels.length > 0) {
+            const generalChannel =
+              publicChannels.find((ch) => ch.name === "general") ||
+              publicChannels[0];
+            setActiveChannelId(generalChannel.id);
+            setActiveChannelName(generalChannel.name);
+          } else {
+            setActiveChannelId(null);
+            setActiveChannelName("general");
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error leaving channel:", error);
+      throw error;
+    }
+  };
+
   const handleUserClick = (clickedUser: User) => {
     setSelectedUser(clickedUser);
   };
@@ -448,20 +527,46 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     }
   };
 
+  const getUserAvatarUrl = (username: string) => {
+    const onlineUser = onlineUsers.find((u) => u.username === username);
+    if (onlineUser?.avatar_url) {
+      console.log(`Found avatar for ${username}:`, onlineUser.avatar_url);
+      return onlineUser.avatar_url;
+    }
+    // Check if it's the current user
+    if (username === user?.username) {
+      console.log(`Current user ${username} avatar:`, user?.avatar_url);
+      return user?.avatar_url;
+    }
+    console.log(`No avatar found for ${username}`);
+    return undefined;
+  };
+
   const handleUserMention = (username: string) => {
     console.log("Mention user:", username);
   };
 
   return (
-    <div className="h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white overflow-hidden">
-      <div className="flex h-full">
+    <div className="h-screen bg-gray-950 text-white overflow-hidden relative">
+      {/* Modern geometric background */}
+      <div
+        className="absolute inset-0 overflow-hidden pointer-events-none modern-bg-pattern"
+        aria-hidden="true"
+      >
+        {/* Small floating shapes */}
+        <div className="absolute top-10 right-10 w-32 h-32 border border-blue-600/20 rounded-lg rotate-12" />
+        <div className="absolute bottom-20 left-10 w-20 h-20 bg-blue-500/5 rounded-full" />
+        <div className="absolute top-1/3 left-20 w-16 h-16 border border-blue-500/15 rounded-lg rotate-45" />
+      </div>
+
+      <div className="relative z-10 flex h-full">
         {/* Left Sidebar - Channels */}
-        <div className="w-60 bg-gray-900/50 backdrop-blur-sm border-r border-gray-700/50 flex flex-col">
+        <div className="w-60 bg-gray-900/70 backdrop-blur-sm border-r border-gray-700/50 flex flex-col">
           {/* Server Header */}
           <div className="p-4 border-b border-gray-700/50">
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center font-bold text-lg">
-                C
+              <div className="w-10 h-10 rounded-lg bg-gray-900 border border-blue-600/30 flex items-center justify-center">
+                <img src="./logo-removebg.png" alt="Logo" height={90} />
               </div>
               <div>
                 <h1 className="font-semibold text-white">ChatGo</h1>
@@ -485,12 +590,11 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
             isMuted={isMuted}
             onMuteToggle={() => setIsMuted(!isMuted)}
             onLogout={handleLogout}
-            getAvatarColor={getAvatarColor}
           />
         </div>
 
         {/* Main Chat Area */}
-        <div className="flex-1 flex flex-col bg-gray-800/30 backdrop-blur-sm">
+        <div className="flex-1 flex flex-col bg-gray-900/40 backdrop-blur-sm">
           <ChatHeader
             activeChannel={activeChannelName}
             connectionStatus={connectionStatus}
@@ -503,6 +607,10 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
               channels.find((ch) => ch.id === activeChannelId)?.created_by ===
               session?.user?.id
             }
+            showChannelSettings={
+              channels.find((ch) => ch.id === activeChannelId)?.isJoined ===
+              true
+            }
             onOpenChannelSettings={handleOpenChannelSettings}
           />
 
@@ -511,7 +619,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
             {messages.length === 0 && (
               <div className="flex items-start space-x-3 group">
                 <Avatar className="w-10 h-10 mt-1">
-                  <AvatarFallback className="bg-gradient-to-br from-purple-500 to-blue-500 text-white font-semibold">
+                  <AvatarFallback className="bg-gray-900 border border-blue-600/30 text-blue-400 font-semibold">
                     S
                   </AvatarFallback>
                 </Avatar>
@@ -522,7 +630,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
                       {formatTimestamp(new Date().toISOString())}
                     </span>
                   </div>
-                  <div className="text-gray-300 bg-gray-700/30 backdrop-blur-sm rounded-lg p-3 border border-gray-600/30">
+                  <div className="text-gray-300 bg-gray-800/50 backdrop-blur-sm rounded-lg p-3 border border-gray-600/30">
                     Welcome to #{activeChannelName}, {user.username}! Start
                     chatting with your team.
                   </div>
@@ -542,6 +650,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
                 onDelete={handleDelete}
                 currentUsername={user?.username}
                 findMessageById={findMessageById}
+                getUserAvatarUrl={getUserAvatarUrl}
               />
             ))}
 
@@ -563,9 +672,12 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
         </div>
 
         {/* Right Sidebar - User List */}
-        <div className="w-60 bg-gray-900/30 backdrop-blur-sm border-l border-gray-700/50">
+        <div className="w-60 bg-gray-900/50 backdrop-blur-sm border-l border-gray-700/50">
           <UserList
-            currentUser={{ username: user.username }}
+            currentUser={{
+              username: user.username,
+              avatar_url: user.avatar_url,
+            }}
             onlineUsers={onlineUsers}
             connectionStatus={connectionStatus}
             isConnected={isConnected}
@@ -601,6 +713,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
         channel={channels.find((ch) => ch.id === activeChannelId) || null}
         onUpdateChannel={handleUpdateChannel}
         onDeleteChannel={handleDeleteChannel}
+        onLeaveChannel={handleLeaveChannel}
         currentUserId={session?.user?.id || ""}
       />
     </div>
