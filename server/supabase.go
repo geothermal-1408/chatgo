@@ -8,12 +8,28 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 type SupabaseClient struct {
-	url   string
-	key   string
-	http  *http.Client
+	url       string
+	key       string
+	http      *http.Client
+	listener  *pq.Listener
+	dbConnStr string
+}
+
+type FriendRequestNotification struct {
+	TargetUserID     string `json:"target_user_id"`
+	SenderUsername   string `json:"sender_username"`
+	NotificationID   string `json:"notification_id"`
+}
+
+type FriendRequestAcceptedNotification struct {
+	TargetUserID       string `json:"target_user_id"`
+	AccepterUsername   string `json:"accepter_username"`
+	NotificationID     string `json:"notification_id"`
 }
 
 type dbMessage struct {
@@ -41,7 +57,80 @@ type validateTokenResponse struct {
 }
 
 func NewSupabaseClient(url, key string) *SupabaseClient {
-	return &SupabaseClient{url: url, key: key, http: &http.Client{Timeout: 10 * time.Second}}
+	return &SupabaseClient{
+		url:  url, 
+		key:  key, 
+		http: &http.Client{Timeout: 10 * time.Second},
+	}
+}
+
+// SetupNotificationListener establishes a PostgreSQL connection for listening to notifications
+func (s *SupabaseClient) SetupNotificationListener(dbConnStr string) error {
+	s.dbConnStr = dbConnStr
+	
+	// Create a new listener
+	listener := pq.NewListener(dbConnStr, 10*time.Second, time.Minute, func(ev pq.ListenerEventType, err error) {
+		if err != nil {
+			fmt.Printf("PG Listener error: %v\n", err)
+		}
+	})
+
+	// Listen for friend request notifications
+	if err := listener.Listen("friend_request"); err != nil {
+		return fmt.Errorf("failed to listen to friend_request channel: %v", err)
+	}
+	
+	if err := listener.Listen("friend_request_accepted"); err != nil {
+		return fmt.Errorf("failed to listen to friend_request_accepted channel: %v", err)
+	}
+
+	s.listener = listener
+	return nil
+}
+
+// ListenForNotifications starts listening for PostgreSQL notifications
+func (s *SupabaseClient) ListenForNotifications() <-chan interface{} {
+	notifications := make(chan interface{})
+	
+	if s.listener == nil {
+		close(notifications)
+		return notifications
+	}
+	
+	go func() {
+		defer close(notifications)
+		defer s.listener.Close()
+		
+		for {
+			select {
+			case n := <-s.listener.Notify:
+				if n == nil {
+					return
+				}
+				
+				switch n.Channel {
+				case "friend_request":
+					var notif FriendRequestNotification
+					if err := json.Unmarshal([]byte(n.Extra), &notif); err == nil {
+						notifications <- notif
+					}
+				case "friend_request_accepted":
+					var notif FriendRequestAcceptedNotification
+					if err := json.Unmarshal([]byte(n.Extra), &notif); err == nil {
+						notifications <- notif
+					}
+				}
+			case <-time.After(90 * time.Second):
+				go func() {
+					if err := s.listener.Ping(); err != nil {
+						fmt.Printf("PG Listener ping failed: %v\n", err)
+					}
+				}()
+			}
+		}
+	}()
+	
+	return notifications
 }
 
 // ValidateToken checks the access token by calling the /auth/v1/user endpoint

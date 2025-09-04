@@ -58,16 +58,18 @@ type Client struct {
 
 // WebSocket JSON format
 type WSMessage struct {
-	Type      string   `json:"type"`
-	Username  string   `json:"username,omitempty"`
-	Content   string   `json:"content,omitempty"`
-	Channel   string   `json:"channel,omitempty"`   // ✅ FIX: Added channel field
-	Users     []string `json:"users,omitempty"`
-	Timestamp string   `json:"timestamp,omitempty"` // ✅ FIX: Added timestamp field
-	ID        string   `json:"id,omitempty"`        // ✅ FIX: Added ID field
-	ReplyTo   string   `json:"reply_to,omitempty"`  // ✅ NEW: Added reply_to field
-	Edited    bool     `json:"edited,omitempty"`    // ✅ NEW: Added edited field
-	EditedAt  string   `json:"edited_at,omitempty"` // ✅ NEW: Added edited_at field
+	Type             string   `json:"type"`
+	Username         string   `json:"username,omitempty"`
+	Content          string   `json:"content,omitempty"`
+	Channel          string   `json:"channel,omitempty"`   // ✅ FIX: Added channel field
+	Users            []string `json:"users,omitempty"`
+	Timestamp        string   `json:"timestamp,omitempty"` // ✅ FIX: Added timestamp field
+	ID               string   `json:"id,omitempty"`        // ✅ FIX: Added ID field
+	ReplyTo          string   `json:"reply_to,omitempty"`  // ✅ NEW: Added reply_to field
+	Edited           bool     `json:"edited,omitempty"`    // ✅ NEW: Added edited field
+	EditedAt         string   `json:"edited_at,omitempty"` // ✅ NEW: Added edited_at field
+	SenderUsername   string   `json:"sender_username,omitempty"` // For friend request notifications
+	AccepterUsername string   `json:"accepter_username,omitempty"` // For friend request accepted notifications
 }
 
 // generateID creates a random ID string similar to client-side generation
@@ -82,6 +84,43 @@ func generateID() string {
 
 func server(messages chan Message, sb *SupabaseClient) {
 	clients := map[string]*Client{}
+	userClients := map[string]*Client{} // Map user ID to client for notifications
+
+	// Start listening for database notifications
+	notifications := sb.ListenForNotifications()
+	
+	go func() {
+		for notif := range notifications {
+			switch n := notif.(type) {
+			case FriendRequestNotification:
+				// Send friend request notification to target user
+				if client, exists := userClients[n.TargetUserID]; exists {
+					friendReqMsg := WSMessage{
+						Type:           "friend_request",
+						SenderUsername: n.SenderUsername,
+						Timestamp:      time.Now().Format(time.RFC3339),
+						ID:             generateID(),
+					}
+					if err := client.Conn.WriteJSON(friendReqMsg); err != nil {
+						log.Printf("Failed to send friend request notification to user %s: %v", n.TargetUserID, err)
+					}
+				}
+			case FriendRequestAcceptedNotification:
+				// Send friend request accepted notification to target user
+				if client, exists := userClients[n.TargetUserID]; exists {
+					acceptedMsg := WSMessage{
+						Type:             "friend_request_accepted",
+						AccepterUsername: n.AccepterUsername,
+						Timestamp:        time.Now().Format(time.RFC3339),
+						ID:               generateID(),
+					}
+					if err := client.Conn.WriteJSON(acceptedMsg); err != nil {
+						log.Printf("Failed to send friend request accepted notification to user %s: %v", n.TargetUserID, err)
+					}
+				}
+			}
+		}
+	}()
 
 	// getUserList := func(channelID string) []string {
 	// 	// ✅ FIX: Return users only for the given channel
@@ -109,9 +148,18 @@ func server(messages chan Message, sb *SupabaseClient) {
 			if existingClient := clients[addr]; existingClient != nil {
 				log.Printf("\x1b[33mINFO\x1b[0m: client %s reconnecting, cleaning up old connection\n", addr)
 				existingClient.Conn.Close()
+				// Remove from userClients map if exists
+				if existingClient.UserID != "" {
+					delete(userClients, existingClient.UserID)
+				}
 			}
 
-			clients[addr] = &Client{Conn: msg.Conn, Username: msg.Username, UserID: msg.UserID}
+			newClient := &Client{Conn: msg.Conn, Username: msg.Username, UserID: msg.UserID}
+			clients[addr] = newClient
+			// Add to userClients map for notifications
+			if msg.UserID != "" {
+				userClients[msg.UserID] = newClient
+			}
 			log.Printf("\x1b[32mINFO\x1b[0m: connected to server: %s user=%s id=%s\n", addr, msg.Username, msg.UserID)
 
 		case ClientDisconnected:
@@ -134,6 +182,11 @@ func server(messages chan Message, sb *SupabaseClient) {
 					}
 				}
 				log.Printf("\x1b[32mINFO\x1b[0m: user %s left channel %s\n", client.Username, client.ChannelID)
+				
+				// Remove from userClients map
+				if client.UserID != "" {
+					delete(userClients, client.UserID)
+				}
 			}
 			delete(clients, fullAddr)
 
@@ -590,10 +643,22 @@ func main() {
 
 	supabaseURL := os.Getenv("SUPABASE_URL")
 	serviceKey := os.Getenv("SUPABASE_SERVICE_ROLE_KEY")
+	dbURL := os.Getenv("DATABASE_URL") // For PostgreSQL notifications
 	if supabaseURL == "" || serviceKey == "" {
 		log.Fatalf("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in environment")
 	}
 	sb := NewSupabaseClient(supabaseURL, serviceKey)
+
+	// Setup notification listener if database URL is provided
+	if dbURL != "" {
+		if err := sb.SetupNotificationListener(dbURL); err != nil {
+			log.Printf("\x1b[33mWARN\x1b[0m: Failed to setup notification listener: %v", err)
+		} else {
+			log.Printf("\x1b[32mINFO\x1b[0m: PostgreSQL notification listener setup successful")
+		}
+	} else {
+		log.Printf("\x1b[33mWARN\x1b[0m: DATABASE_URL not set, friend request notifications will not work")
+	}
 
 	messages := make(chan Message)
 	go server(messages, sb)
