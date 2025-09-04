@@ -10,6 +10,7 @@ export interface Message {
   reply_to?: string; // ✅ NEW: Added reply_to field
   edited?: boolean; // ✅ NEW: Added edited field
   edited_at?: string; // ✅ NEW: Added edited_at field
+  avatar_url?: string; // ✅ NEW: Added avatar_url field
 }
 
 export type ConnectionStatus =
@@ -30,6 +31,8 @@ interface UseWebSocketProps {
   onUserList?: (users: string[]) => void; // ✅ FIX: Added callback for user list
   onMessageEdited?: (message: Message) => void; // ✅ NEW: Added callback for message edits
   onMessageDeleted?: (messageId: string) => void; // ✅ NEW: Added callback for message deletions
+  onFriendRequest?: (senderUsername: string) => void; // ✅ NEW: Added callback for friend requests
+  onFriendRequestAccepted?: (accepterUsername: string) => void; // ✅ NEW: Added callback for friend request acceptance
 }
 
 export function useWebSocket({
@@ -44,6 +47,8 @@ export function useWebSocket({
   onUserList,
   onMessageEdited,
   onMessageDeleted,
+  onFriendRequest,
+  onFriendRequestAccepted,
 }: UseWebSocketProps) {
   const ws = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -120,6 +125,18 @@ export function useWebSocket({
             // Handle initial user list when joining a channel
             if (onUserList && data.users) {
               onUserList(data.users);
+            }
+            break;
+          case "friend_request":
+            // Handle incoming friend request notifications
+            if (onFriendRequest && data.sender_username) {
+              onFriendRequest(data.sender_username);
+            }
+            break;
+          case "friend_request_accepted":
+            // Handle friend request acceptance notifications
+            if (onFriendRequestAccepted && data.accepter_username) {
+              onFriendRequestAccepted(data.accepter_username);
             }
             break;
           default:
