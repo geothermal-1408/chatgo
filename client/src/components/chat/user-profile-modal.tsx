@@ -63,8 +63,8 @@ export function UserProfileModal({
   onClose,
   onSaveProfile,
   onSendMessage,
-  onAddFriend,
-  onBlockUser,
+  //onAddFriend,
+  //onBlockUser,
   onLogout,
   getAvatarColor,
 }: UserProfileModalProps) {
@@ -301,7 +301,7 @@ export function UserProfileModal({
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
       <div className="w-full max-w-md animate-in fade-in-0 zoom-in-95 duration-300">
         <Card className="bg-gray-900/95 backdrop-blur-lg border-gray-700/50 shadow-2xl shadow-purple-500/20">
-          <CardHeader className="relative bg-gradient-to-br from-purple-600/20 to-blue-600/20 rounded-t-lg">
+          <CardHeader className="relative bg-gradient-to-br from-blue-600/20 to-blue-600/20 rounded-t-lg">
             <Button
               variant="ghost"
               size="sm"
@@ -342,7 +342,7 @@ export function UserProfileModal({
                 )}
               </div>
               <div className="flex-1">
-                <CardTitle className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">
+                <CardTitle className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-blue-400 bg-clip-text text-transparent">
                   {displayUser.display_name || displayUser.username}
                 </CardTitle>
                 {displayUser.display_name &&

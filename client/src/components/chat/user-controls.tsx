@@ -1,37 +1,24 @@
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Settings, Mic, MicOff, Headphones, LogOut } from "lucide-react";
+import { Settings, Mic, MicOff, Headphones, LogOut, Users } from "lucide-react";
 
 interface UserControlsProps {
   user: { username: string; avatar_url?: string };
-  connectionStatus: "connecting" | "connected" | "disconnected" | "error";
-  isConnected: boolean;
   isMuted: boolean;
   onMuteToggle: () => void;
+  onOpenSettings: () => void;
+  onOpenFriends: () => void;
   onLogout: () => void;
 }
 
 export function UserControls({
   user,
-  connectionStatus,
-  isConnected,
   isMuted,
   onMuteToggle,
+  onOpenSettings,
+  onOpenFriends,
   onLogout,
 }: UserControlsProps) {
-  const getConnectionStatusText = () => {
-    switch (connectionStatus) {
-      case "connected":
-        return "Connected";
-      case "connecting":
-        return "Connecting...";
-      case "error":
-        return "Connection Error";
-      default:
-        return "Disconnected";
-    }
-  };
-
   return (
     <div className="p-3 border-t border-gray-700/50">
       <div className="flex items-center justify-between bg-gray-800/50 rounded-lg p-2">
@@ -44,16 +31,6 @@ export function UserControls({
               {user.username[0].toUpperCase()}
             </AvatarFallback>
           </Avatar>
-          <div className="text-sm">
-            <div className="font-medium text-white">{user.username}</div>
-            <div
-              className={`text-xs ${
-                isConnected ? "text-green-400" : "text-yellow-400"
-              }`}
-            >
-              {getConnectionStatusText()}
-            </div>
-          </div>
         </div>
         <div className="flex space-x-1">
           <Button
@@ -78,7 +55,18 @@ export function UserControls({
           <Button
             variant="ghost"
             size="sm"
+            onClick={onOpenFriends}
             className="w-8 h-8 p-0 hover:bg-gray-700/50"
+            title="Friends"
+          >
+            <Users className="w-4 h-4 text-gray-400" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onOpenSettings}
+            className="w-8 h-8 p-0 hover:bg-gray-700/50"
+            title="Settings"
           >
             <Settings className="w-4 h-4 text-gray-400" />
           </Button>

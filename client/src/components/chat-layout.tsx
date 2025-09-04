@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useWebSocket, type Message } from "@/hooks/use-websocket";
 import { useChannels } from "@/hooks/use-database";
+import { useToast } from "@/hooks/use-toast";
+import { ToastContainer } from "@/components/ui/toast";
 import { MessageComponent } from "@/components/chat/message";
 import { MessageInput } from "@/components/chat/message-input";
 import { ChatHeader } from "@/components/chat/chat-header";
@@ -11,6 +13,8 @@ import { TypingIndicator } from "@/components/chat/typing-indicator";
 import { UserProfileModal } from "@/components/chat/user-profile-modal";
 import { CreateChannelModal } from "@/components/chat/create-channel-modal";
 import { ChannelSettingsModal } from "@/components/chat/channel-settings-modal";
+import { UserSettingsModal } from "@/components/chat/user-settings-modal";
+import { FriendsManager } from "@/components/chat/friends-manager";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
@@ -51,6 +55,8 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     useState(false);
   const [isChannelSettingsModalOpen, setIsChannelSettingsModalOpen] =
     useState(false);
+  const [isUserSettingsModalOpen, setIsUserSettingsModalOpen] = useState(false);
+  const [isFriendsManagerOpen, setIsFriendsManagerOpen] = useState(false);
   const [replyToMessage, setReplyToMessage] = useState<{
     id: string;
     username: string;
@@ -59,6 +65,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { signOut, updateProfile, session } = useAuth();
+  const { toast, toasts, removeToast } = useToast();
   const {
     channels,
     createChannel,
@@ -281,6 +288,17 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     onUserList: handleUserList,
     onMessageEdited: handleMessageEdited,
     onMessageDeleted: handleMessageDeleted,
+    onFriendRequest: (senderUsername: string) => {
+      toast.friendRequest(senderUsername, () => {
+        setIsFriendsManagerOpen(true);
+      });
+    },
+    onFriendRequestAccepted: (accepterUsername: string) => {
+      toast.success(
+        "Friend Request Accepted",
+        `${accepterUsername} accepted your friend request!`
+      );
+    },
   });
 
   const getAvatarColor = (username: string) => {
@@ -395,6 +413,10 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
 
   const handleOpenChannelSettings = () => {
     setIsChannelSettingsModalOpen(true);
+  };
+
+  const handleOpenUserSettings = () => {
+    setIsUserSettingsModalOpen(true);
   };
 
   const handleUpdateChannel = async (
@@ -530,12 +552,10 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
   const getUserAvatarUrl = (username: string) => {
     const onlineUser = onlineUsers.find((u) => u.username === username);
     if (onlineUser?.avatar_url) {
-      console.log(`Found avatar for ${username}:`, onlineUser.avatar_url);
       return onlineUser.avatar_url;
     }
     // Check if it's the current user
     if (username === user?.username) {
-      console.log(`Current user ${username} avatar:`, user?.avatar_url);
       return user?.avatar_url;
     }
     console.log(`No avatar found for ${username}`);
@@ -585,10 +605,10 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
 
           <UserControls
             user={user}
-            connectionStatus={connectionStatus}
-            isConnected={isConnected}
             isMuted={isMuted}
             onMuteToggle={() => setIsMuted(!isMuted)}
+            onOpenSettings={handleOpenUserSettings}
+            onOpenFriends={() => setIsFriendsManagerOpen(true)}
             onLogout={handleLogout}
           />
         </div>
@@ -716,6 +736,27 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
         onLeaveChannel={handleLeaveChannel}
         currentUserId={session?.user?.id || ""}
       />
+
+      {/* User Settings Modal */}
+      {isUserSettingsModalOpen && (
+        <UserSettingsModal onClose={() => setIsUserSettingsModalOpen(false)} />
+      )}
+
+      {/* Friends Manager Modal */}
+      {isFriendsManagerOpen && (
+        <FriendsManager
+          onClose={() => setIsFriendsManagerOpen(false)}
+          onSendMessage={(username) => {
+            // Switch to DM or general channel and mention the user
+            console.log("Send message to:", username);
+            setIsFriendsManagerOpen(false);
+          }}
+          getAvatarColor={getAvatarColor}
+        />
+      )}
+
+      {/* Toast Notifications */}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }
