@@ -1,4 +1,4 @@
-import { createContext, useEffect, useState } from "react";
+import { createContext, useEffect, useState, useRef } from "react";
 import type { ReactNode } from "react";
 import { authService, type AuthUser } from "@/lib/auth";
 import type { Session, User } from "@supabase/supabase-js";
@@ -39,6 +39,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const lastSessionIdRef = useRef<string | null>(null);
+  const lastFetchTimeRef = useRef<number>(0);
+
+  const userCacheRef = useRef<AuthUser | null>(null);
 
   useEffect(() => {
     // Get initial session
@@ -50,6 +54,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (session?.user) {
           const user = await authService.getCurrentUser();
           setUser(user);
+          // Cache the initial user data
+          userCacheRef.current = user;
+          lastSessionIdRef.current = session.user.id;
+          lastFetchTimeRef.current = Date.now();
         }
       } catch (error) {
         console.error("Error getting initial session:", error);
@@ -63,29 +71,75 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // Listen for auth changes
     const {
       data: { subscription },
-    } = authService.onAuthStateChange((_, session) => {
+    } = authService.onAuthStateChange((event, session) => {
+      console.log("Auth state change:", event, session?.user?.id);
+
+      // Only process meaningful auth events - skip token refreshes and other noise
+      const meaningfulEvents = [
+        "SIGNED_IN",
+        "SIGNED_OUT",
+        "USER_UPDATED",
+        "PASSWORD_RECOVERY",
+      ];
+      if (!meaningfulEvents.includes(event)) {
+        console.log("Skipping non-meaningful auth event:", event);
+        return;
+      }
+
       setSession(session);
 
       if (session?.user) {
-        // Handle user profile fetching separately to avoid blocking auth state changes
-        authService
-          .getCurrentUser()
-          .then((user) => {
-            setUser(user);
-          })
-          .catch((error) => {
-            console.error("Error fetching user profile:", error);
-            setUser(null);
-          });
+        // Check if we already have cached user data for this session
+        const isSameUser = session.user.id === lastSessionIdRef.current;
+        const hasCachedData =
+          userCacheRef.current && userCacheRef.current.id === session.user.id;
+
+        if (isSameUser && hasCachedData) {
+          // Use cached data - no need to fetch
+          setUser(userCacheRef.current);
+          setLoading(false);
+          return;
+        }
+
+        // Only fetch user profile if:
+        // 1. User ID actually changed, OR
+        // 2. We don't have cached data for this user, OR
+        // 3. It's been more than 5 minutes since last fetch (for legitimate refreshes)
+        const now = Date.now();
+        const timeSinceLastFetch = now - lastFetchTimeRef.current;
+        const shouldFetch =
+          session.user.id !== lastSessionIdRef.current ||
+          !hasCachedData ||
+          timeSinceLastFetch > 5 * 60 * 1000; // 5 minutes
+
+        if (shouldFetch) {
+          lastSessionIdRef.current = session.user.id;
+          lastFetchTimeRef.current = now;
+          authService
+            .getCurrentUser()
+            .then((fetchedUser) => {
+              setUser(fetchedUser);
+              // Cache the fetched user data
+              userCacheRef.current = fetchedUser;
+            })
+            .catch((error) => {
+              console.error("Error fetching user profile:", error);
+              setUser(null);
+              userCacheRef.current = null;
+            });
+        }
       } else {
         setUser(null);
+        lastSessionIdRef.current = null;
+        lastFetchTimeRef.current = 0;
+        userCacheRef.current = null;
       }
 
       setLoading(false);
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, []); // Remove user dependency to prevent infinite re-renders
 
   const signUp = async (data: {
     email: string;
@@ -119,6 +173,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Manually clear the user and session state
       setUser(null);
       setSession(null);
+      // Clear the cache as well
+      userCacheRef.current = null;
+      lastSessionIdRef.current = null;
+      lastFetchTimeRef.current = 0;
     } catch (error) {
       console.error("Auth context sign out error:", error);
       throw error;
@@ -136,13 +194,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (!user) throw new Error("No authenticated user");
     const updatedProfile = await authService.updateProfile(updates, user.id);
     if (updatedProfile) {
-      setUser({
+      const updatedUser = {
         ...user,
         username: updatedProfile.username,
         display_name: updatedProfile.display_name,
         bio: updatedProfile.bio,
         avatar_url: updatedProfile.avatar_url,
-      });
+      };
+      setUser(updatedUser);
+      // Update the cache with the new profile data
+      userCacheRef.current = updatedUser;
+      // Update the fetch time since we just got fresh data
+      lastFetchTimeRef.current = Date.now();
     }
   };
 
@@ -161,16 +224,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const uploadAvatar = async (file: File) => {
     if (!user) throw new Error("No authenticated user");
-    const avatarUrl = await authService.uploadAvatar(file, user.id);
-    // Update profile with new avatar URL
-    await updateProfile({ avatar_url: avatarUrl });
-    return avatarUrl;
+
+    try {
+      // Upload to Supabase storage and get the remote URL
+      const avatarUrl = await authService.uploadAvatar(file, user.id);
+
+      // Update profile with new avatar URL
+      await updateProfile({ avatar_url: avatarUrl });
+
+      return avatarUrl;
+    } catch (error) {
+      console.error("Error uploading avatar:", error);
+      throw error;
+    }
   };
 
   const deleteAvatar = async (avatarUrl: string) => {
-    await authService.deleteAvatar(avatarUrl);
-    // Update profile to remove avatar URL
-    await updateProfile({ avatar_url: undefined });
+    if (!user) throw new Error("No authenticated user");
+
+    try {
+      // Delete from Supabase storage
+      await authService.deleteAvatar(avatarUrl);
+
+      // Update profile to remove avatar URL
+      await updateProfile({ avatar_url: undefined });
+    } catch (error) {
+      console.error("Error deleting avatar:", error);
+      throw error;
+    }
   };
 
   const value: AuthContextType = {

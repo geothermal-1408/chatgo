@@ -27,6 +27,8 @@ export interface SignInData {
 }
 
 class AuthService {
+  private currentOnlineStatus: boolean | null = null;
+
   // Sign up new user
   async signUp({ email, password, username, display_name }: SignUpData) {
     try {
@@ -161,6 +163,12 @@ class AuthService {
     callback: (event: string, session: Session | null) => void
   ) {
     return supabase.auth.onAuthStateChange((event, session) => {
+      // Filter out token refresh events to prevent unnecessary profile fetches
+      // These events happen frequently and don't require UI updates
+      if (event === "TOKEN_REFRESHED") {
+        return;
+      }
+
       // Handle online status updates separately to avoid blocking auth state changes
       if (event === "SIGNED_IN" && session?.user) {
         // Run async operation without blocking the auth state change
@@ -225,6 +233,11 @@ class AuthService {
 
   // Update online status
   async updateOnlineStatus(isOnline: boolean) {
+    // Skip update if status hasn't changed
+    if (this.currentOnlineStatus === isOnline) {
+      return;
+    }
+
     try {
       const {
         data: { session },
@@ -240,6 +253,9 @@ class AuthService {
         .eq("id", session.user.id);
 
       if (error) throw error;
+
+      // Update the tracked status only after successful update
+      this.currentOnlineStatus = isOnline;
     } catch (error) {
       console.error("Update online status error:", error);
     }

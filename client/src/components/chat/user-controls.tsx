@@ -3,7 +3,11 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Settings, Mic, MicOff, Headphones, LogOut, Users } from "lucide-react";
 
 interface UserControlsProps {
-  user: { username: string; avatar_url?: string };
+  user: {
+    id?: string;
+    username: string;
+    avatar_url?: string;
+  };
   isMuted: boolean;
   onMuteToggle: () => void;
   onOpenSettings: () => void;

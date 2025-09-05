@@ -1,17 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
-
-// Global flag to track if the page is visible
-let isPageVisible = !document.hidden;
-
-// Handle visibility changes to prevent unnecessary refetches
-if (typeof window !== "undefined") {
-  document.addEventListener("visibilitychange", () => {
-    isPageVisible = !document.hidden;
-  });
-}
 
 export interface Channel {
   id: string;
@@ -22,7 +12,6 @@ export interface Channel {
   created_at: string;
   updated_at: string;
   isJoined?: boolean;
-  //memberCount?: number;
 }
 
 export interface Message {
@@ -77,18 +66,23 @@ export function useChannels() {
   const [error, setError] = useState<string | null>(null);
   const { user, session } = useAuth();
 
+  // Track the last user ID to prevent unnecessary re-fetches
+  const lastUserIdRef = useRef<string | null>(null);
+
   useEffect(() => {
-    let hasInitialized = false;
+    // Only run if the actual user ID string value has changed
+    const currentUserId = user?.id || null;
+    if (lastUserIdRef.current === currentUserId) {
+      return;
+    }
+    lastUserIdRef.current = currentUserId;
+
     let isMounted = true;
 
     const fetchChannels = async () => {
-      // Skip fetch if component is unmounted or not initialized and page not visible
-      if (!isMounted || (!hasInitialized && !isPageVisible)) return;
+      if (!isMounted) return;
 
-      // Only show loading on initial fetch, not on tab visibility changes
-      if (!hasInitialized) {
-        setLoading(true);
-      }
+      setLoading(true);
 
       try {
         setError(null);
@@ -109,9 +103,7 @@ export function useChannels() {
           setAvailableChannels(
             (publicChannels || []).map((ch) => ({ ...ch, isJoined: false }))
           );
-          if (!hasInitialized) {
-            setLoading(false);
-          }
+          setLoading(false);
           return;
         }
 
@@ -136,13 +128,11 @@ export function useChannels() {
 
           if (memberError) {
             console.error("Error fetching member channels:", memberError);
-            // Don't fail completely, just use public channels
           } else {
             memberChannels = (data as unknown as { channel: Channel }[]) || [];
           }
         } catch (memberFetchError) {
           console.error("Failed to fetch member channels:", memberFetchError);
-          // Continue with just public channels
         }
 
         // Extract joined channel IDs
@@ -155,11 +145,10 @@ export function useChannels() {
           isJoined: joinedChannelIds.has(channel.id),
         }));
 
-        // Show all public channels in the main list instead of just joined ones
         setChannels(allPublicChannels);
-        setAvailableChannels([]); // Empty since we're showing all in main list
+        setAvailableChannels([]);
 
-        // If user has no joined channels and there are public channels, try to auto-join them to the general channel
+        // Auto-join general channel logic
         if (
           joinedChannelIds.size === 0 &&
           publicChannels &&
@@ -176,7 +165,6 @@ export function useChannels() {
                 role: "member",
               });
 
-              // Update the channels list to mark general as joined
               setChannels((prev) =>
                 prev.map((ch) =>
                   ch.id === generalChannel.id ? { ...ch, isJoined: true } : ch
@@ -194,28 +182,19 @@ export function useChannels() {
             error instanceof Error ? error.message : "Unknown error"
           }`
         );
-        // Set empty array on error so UI doesn't break
         setChannels([]);
         setAvailableChannels([]);
       } finally {
-        if (!hasInitialized) {
-          setLoading(false);
-          hasInitialized = true;
-        }
+        setLoading(false);
       }
     };
 
-    // Only fetch on initial mount or when user changes
+    // Only fetch once on initial mount
     fetchChannels();
 
-    // Create subscriptions with persistence across tab switches
+    // Create subscriptions for real-time updates
     const channelSubscription = supabase
-      .channel("channels-realtime", {
-        config: {
-          presence: { key: "user_id" },
-          broadcast: { self: true, ack: false },
-        },
-      })
+      .channel("channels-realtime")
       .on(
         "postgres_changes",
         {
@@ -225,12 +204,10 @@ export function useChannels() {
         },
         (payload) => {
           const newChannel = payload.new as Channel;
-
-          // Only add public channels or channels we're members of
           if (!newChannel.is_private) {
             const channelWithJoinStatus = {
               ...newChannel,
-              isJoined: false, // Will be updated if user joins
+              isJoined: false,
             };
             setChannels((prev) => [...prev, channelWithJoinStatus]);
           }
@@ -268,23 +245,18 @@ export function useChannels() {
       )
       .subscribe();
 
-    // Subscribe to channel membership changes with persistence
+    // Subscribe to channel membership changes
     let membershipSubscription: any = null;
     if (user?.id) {
       membershipSubscription = supabase
-        .channel("channel-memberships-realtime", {
-          config: {
-            presence: { key: "user_id" },
-            broadcast: { self: true, ack: false },
-          },
-        })
+        .channel("channel-memberships-realtime")
         .on(
           "postgres_changes",
           {
             event: "INSERT",
             schema: "public",
             table: "channel_members",
-            filter: `user_id=eq.${user.id}`, // Always has a valid filter now
+            filter: `user_id=eq.${user.id}`,
           },
           (payload) => {
             const membership = payload.new as {
@@ -310,7 +282,7 @@ export function useChannels() {
             event: "DELETE",
             schema: "public",
             table: "channel_members",
-            filter: `user_id=eq.${user.id}`, // Always has a valid filter now
+            filter: `user_id=eq.${user.id}`,
           },
           (payload) => {
             const membership = payload.old as {
@@ -338,11 +310,10 @@ export function useChannels() {
         supabase.removeChannel(membershipSubscription);
       }
     };
-  }, [user]);
+  }, [user?.id]); // Only re-run when user ID changes
 
   const createChannel = useCallback(
     async (name: string, description?: string, isPrivate: boolean = false) => {
-      // Use the user from the current closure scope, which gets updated by the useCallback dependency
       if (!user) throw new Error("User not authenticated");
       try {
         const { data: channelData, error: channelError } = await supabase
@@ -391,7 +362,7 @@ export function useChannels() {
         throw error;
       }
     },
-    [user]
+    [user?.id]
   );
 
   const joinChannel = useCallback(
@@ -404,10 +375,8 @@ export function useChannels() {
         role: "member",
       });
 
-      // Handle duplicate key error (user already a member)
       if (error) {
         if (error.code === "23505") {
-          // Update the local state to reflect that user is already joined
           setChannels((prev) =>
             prev.map((channel) =>
               channel.id === channelId
@@ -415,19 +384,18 @@ export function useChannels() {
                 : channel
             )
           );
-          return; // Don't throw error for duplicate membership
+          return;
         }
         throw error;
       }
 
-      // Update the channel's isJoined status in the channels array
       setChannels((prev) =>
         prev.map((channel) =>
           channel.id === channelId ? { ...channel, isJoined: true } : channel
         )
       );
     },
-    [user]
+    [user?.id]
   );
 
   const leaveChannel = useCallback(
@@ -442,14 +410,13 @@ export function useChannels() {
 
       if (error) throw error;
 
-      // Update the channel's isJoined status to false
       setChannels((prev) =>
         prev.map((channel) =>
           channel.id === channelId ? { ...channel, isJoined: false } : channel
         )
       );
     },
-    [user]
+    [user?.id]
   );
 
   const updateChannel = useCallback(
@@ -472,7 +439,6 @@ export function useChannels() {
         throw error;
       }
 
-      // Update the channel in state
       setChannels((prev) =>
         prev.map((channel) =>
           channel.id === channelId ? { ...channel, ...data } : channel
@@ -487,7 +453,7 @@ export function useChannels() {
 
       return data;
     },
-    [user]
+    [user?.id]
   );
 
   const deleteChannel = useCallback(
@@ -495,7 +461,6 @@ export function useChannels() {
       if (!user) throw new Error("User not authenticated");
 
       try {
-        // First check if the user owns this channel
         const { data: channelCheck, error: checkError } = await supabase
           .from("channels")
           .select("id, created_by, name")
@@ -516,7 +481,6 @@ export function useChannels() {
           );
         }
 
-        // Now delete the channel - cascading will handle members and messages
         const { data, error } = await supabase
           .from("channels")
           .delete()
@@ -535,7 +499,6 @@ export function useChannels() {
           );
         }
 
-        // Remove the channel from state
         setChannels((prev) =>
           prev.filter((channel) => channel.id !== channelId)
         );
@@ -549,7 +512,7 @@ export function useChannels() {
         throw deleteError;
       }
     },
-    [user]
+    [user?.id]
   );
 
   return {
@@ -562,13 +525,11 @@ export function useChannels() {
     deleteChannel,
     joinChannel,
     leaveChannel,
-    // Debug helper function
     debugAuthHeaders: async () => {
       const { data, error } = await supabase
         .from("profiles")
         .select("id")
         .limit(1);
-
       return { session, testQuery: { data, error } };
     },
   };
@@ -581,19 +542,18 @@ export function useMessages(channelId: string | null) {
   const { user } = useAuth();
 
   useEffect(() => {
-    if (!channelId) return;
+    if (!channelId) {
+      setMessages([]);
+      setLoading(false);
+      return;
+    }
 
-    let hasInitialized = false;
     let isMounted = true;
 
     const fetchMessages = async () => {
-      // Skip fetch if component is unmounted or not initialized and page not visible
-      if (!isMounted || (!hasInitialized && !isPageVisible)) return;
+      if (!isMounted) return;
 
-      // Only show loading on initial fetch
-      if (!hasInitialized) {
-        setLoading(true);
-      }
+      setLoading(true);
 
       try {
         const { data, error } = await supabase
@@ -612,27 +572,27 @@ export function useMessages(channelId: string | null) {
           .order("created_at", { ascending: true });
 
         if (error) throw error;
-        setMessages(data || []);
+        if (isMounted) {
+          setMessages(data || []);
+        }
       } catch (error) {
         console.error("Error fetching messages:", error);
+        if (isMounted) {
+          setMessages([]);
+        }
       } finally {
-        if (!hasInitialized) {
+        if (isMounted) {
           setLoading(false);
-          hasInitialized = true;
         }
       }
     };
 
+    // Only fetch once on initial mount or channel change
     fetchMessages();
 
-    // Subscribe to new messages with persistence
+    // Subscribe to new messages for real-time updates
     const subscription = supabase
-      .channel(`messages-${channelId}`, {
-        config: {
-          presence: { key: "user_id" },
-          broadcast: { self: true, ack: false },
-        },
-      })
+      .channel(`messages-${channelId}`)
       .on(
         "postgres_changes",
         {
@@ -642,7 +602,6 @@ export function useMessages(channelId: string | null) {
           filter: `channel_id=eq.${channelId}`,
         },
         (payload: RealtimePostgresChangesPayload<MessagePayload>) => {
-          // Dispatch the Supabase query outside the callback to avoid deadlock
           queueMicrotask(async () => {
             try {
               const { data } = await supabase
@@ -660,7 +619,7 @@ export function useMessages(channelId: string | null) {
                 .eq("id", (payload.new as MessagePayload).id)
                 .single();
 
-              if (data) {
+              if (data && isMounted) {
                 setMessages((prev) => [...prev, data]);
               }
             } catch (error) {
@@ -678,7 +637,6 @@ export function useMessages(channelId: string | null) {
           filter: `channel_id=eq.${channelId}`,
         },
         (payload: RealtimePostgresChangesPayload<MessagePayload>) => {
-          // Dispatch the Supabase query outside the callback to avoid deadlock
           queueMicrotask(async () => {
             try {
               const { data } = await supabase
@@ -696,7 +654,7 @@ export function useMessages(channelId: string | null) {
                 .eq("id", (payload.new as MessagePayload).id)
                 .single();
 
-              if (data) {
+              if (data && isMounted) {
                 setMessages((prev) =>
                   prev.map((msg) => (msg.id === data.id ? data : msg))
                 );
@@ -716,9 +674,13 @@ export function useMessages(channelId: string | null) {
           filter: `channel_id=eq.${channelId}`,
         },
         (payload: RealtimePostgresChangesPayload<MessagePayload>) => {
-          setMessages((prev) =>
-            prev.filter((msg) => msg.id !== (payload.old as MessagePayload).id)
-          );
+          if (isMounted) {
+            setMessages((prev) =>
+              prev.filter(
+                (msg) => msg.id !== (payload.old as MessagePayload).id
+              )
+            );
+          }
         }
       )
       .subscribe();
@@ -727,17 +689,17 @@ export function useMessages(channelId: string | null) {
       isMounted = false;
       supabase.removeChannel(subscription);
     };
-  }, [channelId]);
+  }, [channelId]); // Only re-run when channelId changes
 
   const sendMessage = useCallback(
     async (content: string, replyTo?: string) => {
       if (!user || !channelId)
         throw new Error("User not authenticated or no channel selected");
 
-      // Basic send (no idempotent token column). Optional: optimistic append.
       const optimisticId = `tmp_${Date.now()}_${Math.random()
         .toString(36)
         .slice(2, 8)}`;
+
       setMessages((prev) => [
         ...prev,
         {
@@ -758,12 +720,14 @@ export function useMessages(channelId: string | null) {
           },
         },
       ]);
+
       const { error } = await supabase.from("messages").insert({
         channel_id: channelId,
         user_id: user.id,
         content,
         reply_to: replyTo || null,
       });
+
       if (error) {
         setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
         throw error;
@@ -784,11 +748,11 @@ export function useMessages(channelId: string | null) {
           edited_at: new Date().toISOString(),
         })
         .eq("id", messageId)
-        .eq("user_id", user.id); // Only allow editing own messages
+        .eq("user_id", user.id);
 
       if (error) throw error;
     },
-    [user]
+    [user?.id]
   );
 
   const deleteMessage = useCallback(
@@ -799,11 +763,11 @@ export function useMessages(channelId: string | null) {
         .from("messages")
         .delete()
         .eq("id", messageId)
-        .eq("user_id", user.id); // Only allow deleting own messages
+        .eq("user_id", user.id);
 
       if (error) throw error;
     },
-    [user]
+    [user?.id]
   );
 
   return {
@@ -821,19 +785,18 @@ export function useChannelMembers(channelId: string | null) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!channelId) return;
+    if (!channelId) {
+      setMembers([]);
+      setLoading(false);
+      return;
+    }
 
-    let hasInitialized = false;
     let isMounted = true;
 
     const fetchMembers = async () => {
-      // Skip fetch if component is unmounted or not initialized and page not visible
-      if (!isMounted || (!hasInitialized && !isPageVisible)) return;
+      if (!isMounted) return;
 
-      // Only show loading on initial fetch
-      if (!hasInitialized) {
-        setLoading(true);
-      }
+      setLoading(true);
 
       try {
         const { data, error } = await supabase
@@ -852,27 +815,27 @@ export function useChannelMembers(channelId: string | null) {
           .eq("channel_id", channelId);
 
         if (error) throw error;
-        setMembers(data || []);
+        if (isMounted) {
+          setMembers(data || []);
+        }
       } catch (error) {
         console.error("Error fetching channel members:", error);
+        if (isMounted) {
+          setMembers([]);
+        }
       } finally {
-        if (!hasInitialized) {
+        if (isMounted) {
           setLoading(false);
-          hasInitialized = true;
         }
       }
     };
 
+    // Only fetch once on initial mount or channel change
     fetchMembers();
 
-    // Subscribe to member changes with persistence
+    // Subscribe to member changes for real-time updates
     const subscription = supabase
-      .channel(`channel-members-${channelId}`, {
-        config: {
-          presence: { key: "user_id" },
-          broadcast: { self: true, ack: false },
-        },
-      })
+      .channel(`channel-members-${channelId}`)
       .on(
         "postgres_changes",
         {
@@ -882,12 +845,32 @@ export function useChannelMembers(channelId: string | null) {
           filter: `channel_id=eq.${channelId}`,
         },
         () => {
-          // Dispatch the Supabase query outside the callback to avoid deadlock
+          // Re-fetch members when there's any change
           queueMicrotask(async () => {
-            try {
-              await fetchMembers(); // Refresh members on any change
-            } catch (error) {
-              console.error("Error refreshing channel members:", error);
+            if (isMounted) {
+              try {
+                const { data, error } = await supabase
+                  .from("channel_members")
+                  .select(
+                    `
+                    *,
+                    user:profiles (
+                      username,
+                      display_name,
+                      avatar_url,
+                      is_online
+                    )
+                  `
+                  )
+                  .eq("channel_id", channelId);
+
+                if (error) throw error;
+                if (isMounted) {
+                  setMembers(data || []);
+                }
+              } catch (error) {
+                console.error("Error refreshing channel members:", error);
+              }
             }
           });
         }
@@ -898,7 +881,7 @@ export function useChannelMembers(channelId: string | null) {
       isMounted = false;
       supabase.removeChannel(subscription);
     };
-  }, [channelId]);
+  }, [channelId]); // Only re-run when channelId changes
 
   return {
     members,

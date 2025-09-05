@@ -7,7 +7,18 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error("Missing Supabase environment variables");
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true,
+    debug: false,
+  },
+  realtime: {
+    heartbeatIntervalMs: 30000,
+    reconnectAfterMs: () => Math.random() * 5000,
+  },
+});
 
 // Database types
 export interface Database {

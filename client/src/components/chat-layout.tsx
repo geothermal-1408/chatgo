@@ -62,6 +62,10 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     username: string;
     content: string;
   } | null>(null);
+  // Add avatar cache to persist avatar URLs across channel switches
+  const [avatarCache, setAvatarCache] = useState<Map<string, string>>(
+    new Map()
+  );
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { signOut, updateProfile, session } = useAuth();
@@ -515,16 +519,32 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
 
       await updateProfile(updateData);
 
-      setUser((prev) => ({
-        ...prev,
+      const updatedUser = {
+        ...user!,
         bio: profile.bio,
         status: profile.status,
-        display_name: profile.display_name || prev.display_name,
+        display_name: profile.display_name || user!.display_name,
         avatar_url:
           profile.avatar_url !== undefined
             ? profile.avatar_url
-            : prev.avatar_url,
-      }));
+            : user!.avatar_url,
+      };
+
+      setUser(updatedUser);
+
+      // Update avatar cache with the new avatar URL
+      if (updatedUser.avatar_url) {
+        setAvatarCache((prev) =>
+          new Map(prev).set(updatedUser.username, updatedUser.avatar_url!)
+        );
+      } else if (profile.avatar_url === undefined) {
+        // Remove from cache if avatar was deleted
+        setAvatarCache((prev) => {
+          const newCache = new Map(prev);
+          newCache.delete(updatedUser.username);
+          return newCache;
+        });
+      }
 
       // Update the user in online users list
       setOnlineUsers((prev) =>
@@ -549,18 +569,78 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     }
   };
 
-  const getUserAvatarUrl = (username: string) => {
-    const onlineUser = onlineUsers.find((u) => u.username === username);
-    if (onlineUser?.avatar_url) {
-      return onlineUser.avatar_url;
+  const getUserAvatarUrl = useCallback(
+    (username: string) => {
+      // First check the avatar cache
+      if (avatarCache.has(username)) {
+        return avatarCache.get(username);
+      }
+
+      // Check online users
+      const onlineUser = onlineUsers.find((u) => u.username === username);
+      if (onlineUser?.avatar_url) {
+        // Cache the avatar URL
+        setAvatarCache((prev) =>
+          new Map(prev).set(username, onlineUser.avatar_url!)
+        );
+        return onlineUser.avatar_url;
+      }
+
+      // Check if it's the current user
+      if (username === user?.username && user?.avatar_url) {
+        // Cache the current user's avatar URL
+        setAvatarCache((prev) => new Map(prev).set(username, user.avatar_url!));
+        return user.avatar_url;
+      }
+
+      // Check messages for avatar URLs (message data includes avatar_url field)
+      const messageWithAvatar = messages.find(
+        (m) => m.username === username && m.avatar_url
+      );
+      if (messageWithAvatar?.avatar_url) {
+        // Cache the avatar URL from message data
+        setAvatarCache((prev) =>
+          new Map(prev).set(username, messageWithAvatar.avatar_url!)
+        );
+        return messageWithAvatar.avatar_url;
+      }
+
+      console.log(`No avatar found for ${username}`);
+      return undefined;
+    },
+    [avatarCache, onlineUsers, user, messages]
+  );
+
+  // Update avatar cache when user data changes
+  useEffect(() => {
+    if (user?.username && user?.avatar_url) {
+      setAvatarCache((prev) =>
+        new Map(prev).set(user.username, user.avatar_url!)
+      );
     }
-    // Check if it's the current user
-    if (username === user?.username) {
-      return user?.avatar_url;
-    }
-    console.log(`No avatar found for ${username}`);
-    return undefined;
-  };
+  }, [user?.username, user?.avatar_url]);
+
+  // Update avatar cache when online users change
+  useEffect(() => {
+    onlineUsers.forEach((onlineUser) => {
+      if (onlineUser.avatar_url) {
+        setAvatarCache((prev) =>
+          new Map(prev).set(onlineUser.username, onlineUser.avatar_url!)
+        );
+      }
+    });
+  }, [onlineUsers]);
+
+  // Update avatar cache when messages change (for users not in online list)
+  useEffect(() => {
+    messages.forEach((message) => {
+      if (message.avatar_url && !avatarCache.has(message.username)) {
+        setAvatarCache((prev) =>
+          new Map(prev).set(message.username, message.avatar_url!)
+        );
+      }
+    });
+  }, [messages, avatarCache]);
 
   const handleUserMention = (username: string) => {
     console.log("Mention user:", username);

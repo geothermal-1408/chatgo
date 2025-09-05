@@ -157,12 +157,13 @@ export function UserProfileModal({
   };
 
   const handleAvatarUpload = async () => {
-    if (!avatarFile || !isCurrentUser) return;
+    if (!avatarFile || !isCurrentUser || !displayUser.id) return;
 
     try {
       setIsUploading(true);
       console.log("Starting avatar upload...", avatarFile.name);
 
+      // Upload to Supabase and get remote URL
       const avatarUrl = await uploadAvatar(avatarFile);
       console.log("Avatar upload successful:", avatarUrl);
 
@@ -206,7 +207,7 @@ export function UserProfileModal({
   };
 
   const handleAvatarDelete = async () => {
-    if (!displayUser.avatar_url || !isCurrentUser) return;
+    if (!displayUser.avatar_url || !isCurrentUser || !displayUser.id) return;
 
     try {
       setIsUploading(true);
