@@ -62,6 +62,9 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     username: string;
     content: string;
   } | null>(null);
+
+  //*** Using map as cache system as a patch afterwards we will shift to indexed DB and SWR ***/
+
   // Add avatar cache to persist avatar URLs across channel switches
   const [avatarCache, setAvatarCache] = useState<Map<string, string>>(
     new Map()
