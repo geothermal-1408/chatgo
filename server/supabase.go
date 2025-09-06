@@ -43,6 +43,32 @@ type dbMessage struct {
 	CreatedAt string  `json:"created_at"`
 }
 
+type dmMessage struct {
+	ID               string  `json:"id"`
+	DMConversationID string  `json:"dm_id"`
+	SenderID         string  `json:"sender_id"`
+	Content          string  `json:"content"`
+	MessageType      string  `json:"message_type"`
+	FileURL          *string `json:"file_url"`
+	ReplyTo          *string `json:"reply_to"`
+	Edited           bool    `json:"edited"`
+	EditedAt         *string `json:"edited_at"`
+	ReadByRecipient  bool    `json:"read_by_recipient"`
+	ReadAt           *string `json:"read_at"`
+	CreatedAt        string  `json:"created_at"`
+}
+
+// type dmConversation struct {
+// 	DMID                   string `json:"dm_id"`
+// 	User1ID                string `json:"user1_id"`
+// 	User2ID                string `json:"user2_id"`
+// 	LastMessageContent     *string `json:"last_message_content"`
+// 	LastMessageSenderID    *string `json:"last_message_sender_id"`
+// 	LastMessageReadByRecipient *bool `json:"last_message_read_by_recipient"`
+// 	LastMessageAt          string  `json:"last_message_at"`
+// 	CreatedAt              string  `json:"created_at"`
+// }
+
 type profile struct {
 	Username string `json:"username"`
 }
@@ -409,6 +435,162 @@ func (s *SupabaseClient) GetProfiles(userIDs []string) (map[string]string, error
 	}
 	
 	return result, nil
+}
+
+// DM-related functions
+
+// CreateOrGetDMConversation creates or gets an existing DM conversation between two users
+func (s *SupabaseClient) CreateOrGetDMConversation(user1ID, user2ID, userToken string) (string, error) {
+	requestBody := map[string]interface{}{
+		"target_user_id": user2ID,
+	}
+	
+	jsonBody, err := json.Marshal(requestBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/rest/v1/rpc/get_or_create_dm", s.url), bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+userToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("apikey", s.key)
+	req.Header.Set("X-Client-Info", "supabase-go/0.0.1")
+
+	resp, err := s.http.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var dmID string
+	if err := json.NewDecoder(resp.Body).Decode(&dmID); err != nil {
+		return "", fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return dmID, nil
+}
+
+// InsertDMMessage inserts a new DM message
+func (s *SupabaseClient) InsertDMMessage(dmID, senderID, content string, replyTo *string) (*dmMessage, error) {
+	requestBody := map[string]interface{}{
+		"dm_id":     dmID,
+		"sender_id": senderID,
+		"content":   content,
+	}
+
+	if replyTo != nil {
+		requestBody["reply_to"] = *replyTo
+	}
+
+	jsonBody, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/rest/v1/dm_messages", s.url), bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+s.key)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("apikey", s.key)
+	req.Header.Set("Prefer", "return=representation")
+
+	resp, err := s.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var messages []dmMessage
+	if err := json.NewDecoder(resp.Body).Decode(&messages); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if len(messages) == 0 {
+		return nil, errors.New("no message returned from insert")
+	}
+
+	return &messages[0], nil
+}
+
+// MarkDMMessageAsRead marks a DM message as read
+func (s *SupabaseClient) MarkDMMessageAsRead(messageID, userID string) error {
+	requestBody := map[string]interface{}{
+		"read_by_recipient": true,
+		"read_at":          time.Now().Format(time.RFC3339),
+	}
+
+	jsonBody, err := json.Marshal(requestBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest("PATCH", fmt.Sprintf("%s/rest/v1/dm_messages?id=eq.%s", s.url, messageID), bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+s.key)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("apikey", s.key)
+
+	resp, err := s.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
+}
+
+// GetDMMessages retrieves messages for a DM conversation
+func (s *SupabaseClient) GetDMMessages(dmID string, limit int) ([]dmMessage, error) {
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/rest/v1/dm_messages?dm_id=eq.%s&order=created_at.asc&limit=%d", s.url, dmID, limit), nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+s.key)
+	req.Header.Set("apikey", s.key)
+
+	resp, err := s.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var messages []dmMessage
+	if err := json.NewDecoder(resp.Body).Decode(&messages); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return messages, nil
 }
 
 func backoff(attempt int) time.Duration {

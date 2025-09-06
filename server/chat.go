@@ -36,6 +36,12 @@ const (
 	UserJoined
 	UserLeft
 	UserList
+	// DM-specific message types
+	DMMessage
+	DMTyping
+	DMStopTyping
+	DMMessageRead
+	DMMessageDelivered
 )
 
 // Incoming raw message wrapper
@@ -45,6 +51,7 @@ type Message struct {
 	Text     string
 	Username string
 	UserID   string
+	Token    string
 }
 
 // Each connected client
@@ -70,6 +77,15 @@ type WSMessage struct {
 	EditedAt         string   `json:"edited_at,omitempty"` // ✅ NEW: Added edited_at field
 	SenderUsername   string   `json:"sender_username,omitempty"` // For friend request notifications
 	AccepterUsername string   `json:"accepter_username,omitempty"` // For friend request accepted notifications
+	
+	// DM-specific fields
+	DMConversationID string   `json:"dm_conversation_id,omitempty"`
+	RecipientID      string   `json:"recipient_id,omitempty"`
+	SenderID         string   `json:"sender_id,omitempty"`
+	MessageID        string   `json:"message_id,omitempty"`
+	IsRead           bool     `json:"is_read,omitempty"`
+	IsDelivered      bool     `json:"is_delivered,omitempty"`
+	MessageStatus    string   `json:"message_status,omitempty"` // "sent", "delivered", "read"
 }
 
 // generateID creates a random ID string similar to client-side generation
@@ -154,7 +170,7 @@ func server(messages chan Message, sb *SupabaseClient) {
 				}
 			}
 
-			newClient := &Client{Conn: msg.Conn, Username: msg.Username, UserID: msg.UserID}
+			newClient := &Client{Conn: msg.Conn, Username: msg.Username, UserID: msg.UserID, Token: msg.Token}
 			clients[addr] = newClient
 			// Add to userClients map for notifications
 			if msg.UserID != "" {
@@ -507,6 +523,121 @@ func server(messages chan Message, sb *SupabaseClient) {
 				continue // Don't process as regular message
 			}
 
+			// Handle DM messages
+			if wsMsg.Type == "dm_message" {
+				if strings.TrimSpace(wsMsg.Content) == "" || wsMsg.RecipientID == "" {
+					log.Printf("\x1b[31mERROR\x1b[0m: dm_message missing content or recipient_id")
+					continue
+				}
+
+				// Create or get DM conversation
+				dmID, err := sb.CreateOrGetDMConversation(author.UserID, wsMsg.RecipientID, author.Token)
+				if err != nil {
+					log.Printf("\x1b[31mERROR\x1b[0m: failed to create/get DM conversation: %v", err)
+					continue
+				}
+
+				// Insert DM message to database
+				var replyTo *string
+				if wsMsg.ReplyTo != "" {
+					replyTo = &wsMsg.ReplyTo
+				}
+				
+				dbMsg, err := sb.InsertDMMessage(dmID, author.UserID, wsMsg.Content, replyTo)
+				if err != nil {
+					log.Printf("\x1b[31mERROR\x1b[0m: failed to persist DM message: %v", err)
+					continue
+				}
+
+				// Create response message
+				dmResponse := WSMessage{
+					Type:             "dm_message",
+					MessageID:        dbMsg.ID,
+					DMConversationID: dmID,
+					SenderID:         author.UserID,
+					RecipientID:      wsMsg.RecipientID,
+					Username:         author.Username,
+					Content:          wsMsg.Content,
+					Timestamp:        dbMsg.CreatedAt,
+					ReplyTo:          wsMsg.ReplyTo,
+					MessageStatus:    "sent",
+				}
+
+				// Send to sender (confirmation)
+				if err := author.Conn.WriteJSON(dmResponse); err != nil {
+					log.Printf("\x1b[31mERROR\x1b[0m: failed to send DM confirmation to sender: %v", err)
+				}
+
+				// Send to recipient if they're online
+				for _, client := range userClients {
+					if client.UserID == wsMsg.RecipientID {
+						dmResponse.MessageStatus = "delivered"
+						if err := client.Conn.WriteJSON(dmResponse); err != nil {
+							log.Printf("\x1b[31mERROR\x1b[0m: failed to send DM to recipient: %v", err)
+						} else {
+							log.Printf("\x1b[32mINFO\x1b[0m: DM delivered to user %s", wsMsg.RecipientID)
+						}
+						break
+					}
+				}
+
+				continue
+			}
+
+			// Handle DM typing indicators
+			if wsMsg.Type == "dm_typing" || wsMsg.Type == "dm_stop_typing" {
+				if wsMsg.RecipientID == "" {
+					continue
+				}
+
+				// Send to recipient if they're online
+				for _, client := range userClients {
+					if client.UserID == wsMsg.RecipientID {
+						typingMsg := WSMessage{
+							Type:        wsMsg.Type,
+							SenderID:    author.UserID,
+							Username:    author.Username,
+							RecipientID: wsMsg.RecipientID,
+						}
+						if err := client.Conn.WriteJSON(typingMsg); err != nil {
+							log.Printf("\x1b[31mERROR\x1b[0m: failed to send typing indicator: %v", err)
+						}
+						break
+					}
+				}
+				continue
+			}
+
+			// Handle DM message read receipts
+			if wsMsg.Type == "dm_message_read" {
+				if wsMsg.MessageID == "" {
+					continue
+				}
+
+				// Mark message as read in database
+				if err := sb.MarkDMMessageAsRead(wsMsg.MessageID, author.UserID); err != nil {
+					log.Printf("\x1b[31mERROR\x1b[0m: failed to mark DM as read: %v", err)
+					continue
+				}
+
+				// Send read receipt to sender if they're online
+				for _, client := range userClients {
+					if client.UserID == wsMsg.SenderID {
+						readMsg := WSMessage{
+							Type:        "dm_message_read",
+							MessageID:   wsMsg.MessageID,
+							RecipientID: author.UserID,
+							SenderID:    wsMsg.SenderID,
+						}
+						if err := client.Conn.WriteJSON(readMsg); err != nil {
+							log.Printf("\x1b[31mERROR\x1b[0m: failed to send read receipt: %v", err)
+						}
+						break
+					}
+				}
+				continue
+			}
+
 			// ✅ FIX: Only allow sending to same channel
 			// Skip empty messages
 			if strings.TrimSpace(wsMsg.Content) == "" {
@@ -625,7 +756,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, messages chan Messa
 		username = profile.Username
 	}
 
-	messages <- Message{Type: ClientConnected, Conn: conn, Username: username, UserID: user.ID}
+	messages <- Message{Type: ClientConnected, Conn: conn, Username: username, UserID: user.ID, Token: token}
 
 	// Store user info in client map (after initial add)
 	// We don't have direct reference here; will attach on first join
