@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useWebSocket, type Message } from "@/hooks/use-websocket";
 import { useChannels } from "@/hooks/use-database";
+import { useDirectMessages } from "@/hooks/use-direct-messages";
 import { useToast } from "@/hooks/use-toast";
 import { ToastContainer } from "@/components/ui/toast";
 import { MessageComponent } from "@/components/chat/message";
@@ -15,10 +16,16 @@ import { CreateChannelModal } from "@/components/chat/create-channel-modal";
 import { ChannelSettingsModal } from "@/components/chat/channel-settings-modal";
 import { UserSettingsModal } from "@/components/chat/user-settings-modal";
 import { FriendsManager } from "@/components/chat/friends-manager";
+import { DMList } from "@/components/chat/dm-list";
+import { DMChat } from "@/components/chat/dm-chat";
+
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import { authService } from "@/lib/auth";
+import type { DMConversation } from "@/hooks/use-direct-messages";
+import { MessageCircle, Hash } from "lucide-react";
 
 interface User {
   id: string;
@@ -63,6 +70,11 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     content: string;
   } | null>(null);
 
+  // DM-related state
+  const [viewMode, setViewMode] = useState<"channels" | "dm">("channels");
+  const [activeDMConversation, setActiveDMConversation] =
+    useState<DMConversation | null>(null);
+
   //*** Using map as cache system as a patch afterwards we will shift to indexed DB and SWR ***/
 
   // Add avatar cache to persist avatar URLs across channel switches
@@ -73,6 +85,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
   const navigate = useNavigate();
   const { signOut, updateProfile, session } = useAuth();
   const { toast, toasts, removeToast } = useToast();
+  const { createOrGetConversation } = useDirectMessages();
   const {
     channels,
     createChannel,
@@ -503,6 +516,40 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
     setSelectedUser(clickedUser);
   };
 
+  // Handle starting a direct message with a friend
+  const handleStartDirectMessage = async (friendId: string) => {
+    try {
+      await createOrGetConversation(friendId);
+      setIsFriendsManagerOpen(false);
+      setViewMode("dm");
+      toast.success("Direct Message", "Direct message conversation created!");
+    } catch (error) {
+      console.error("Error starting direct message:", error);
+      toast.error("Error", "Failed to start direct message. Please try again.");
+    }
+  };
+
+  // Handle DM conversation selection
+  const handleSelectDMConversation = (conversation: DMConversation) => {
+    setActiveDMConversation(conversation);
+  };
+
+  // Handle switching between channels and DMs
+  const handleSwitchToChannels = () => {
+    setViewMode("channels");
+    setActiveDMConversation(null);
+  };
+
+  const handleSwitchToDMs = () => {
+    setViewMode("dm");
+    setActiveDMConversation(null);
+  };
+
+  // Handle going back from DM chat to DM list
+  const handleBackToDMList = () => {
+    setActiveDMConversation(null);
+  };
+
   const handleSaveProfile = async (profile: {
     bio: string;
     status: string;
@@ -579,36 +626,25 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
         return avatarCache.get(username);
       }
 
-      // Check online users
+      // Check online users (without updating cache during render)
       const onlineUser = onlineUsers.find((u) => u.username === username);
       if (onlineUser?.avatar_url) {
-        // Cache the avatar URL
-        setAvatarCache((prev) =>
-          new Map(prev).set(username, onlineUser.avatar_url!)
-        );
         return onlineUser.avatar_url;
       }
 
-      // Check if it's the current user
+      // Check if it's the current user (without updating cache during render)
       if (username === user?.username && user?.avatar_url) {
-        // Cache the current user's avatar URL
-        setAvatarCache((prev) => new Map(prev).set(username, user.avatar_url!));
         return user.avatar_url;
       }
 
-      // Check messages for avatar URLs (message data includes avatar_url field)
+      // Check messages for avatar URLs (without updating cache during render)
       const messageWithAvatar = messages.find(
         (m) => m.username === username && m.avatar_url
       );
       if (messageWithAvatar?.avatar_url) {
-        // Cache the avatar URL from message data
-        setAvatarCache((prev) =>
-          new Map(prev).set(username, messageWithAvatar.avatar_url!)
-        );
         return messageWithAvatar.avatar_url;
       }
 
-      console.log(`No avatar found for ${username}`);
       return undefined;
     },
     [avatarCache, onlineUsers, user, messages]
@@ -663,7 +699,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
       </div>
 
       <div className="relative z-10 flex h-full">
-        {/* Left Sidebar - Channels */}
+        {/* Left Sidebar - Channels/DMs */}
         <div className="w-60 bg-gray-900/70 backdrop-blur-sm border-r border-gray-700/50 flex flex-col">
           {/* Server Header */}
           <div className="p-4 border-b border-gray-700/50">
@@ -676,15 +712,56 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
                 <p className="text-xs text-gray-400">Modern Chat App</p>
               </div>
             </div>
+
+            {/* View Mode Toggle */}
+            <div className="flex mt-3 bg-gray-800/50 rounded-lg p-1">
+              <Button
+                variant={viewMode === "channels" ? "default" : "ghost"}
+                size="sm"
+                onClick={handleSwitchToChannels}
+                className={`flex-1 text-xs ${
+                  viewMode === "channels"
+                    ? "bg-purple-600 hover:bg-purple-700"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                <Hash className="w-3 h-3 mr-1" />
+                Channels
+              </Button>
+              <Button
+                variant={viewMode === "dm" ? "default" : "ghost"}
+                size="sm"
+                onClick={handleSwitchToDMs}
+                className={`flex-1 text-xs ${
+                  viewMode === "dm"
+                    ? "bg-purple-600 hover:bg-purple-700"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                <MessageCircle className="w-3 h-3 mr-1" />
+                DMs
+              </Button>
+            </div>
           </div>
 
-          <ChannelList
-            channels={channels}
-            activeChannel={activeChannelName}
-            onChannelChange={handleChannelChange}
-            onCreateChannel={() => setIsCreateChannelModalOpen(true)}
-            loading={channelsLoading}
-          />
+          {viewMode === "channels" ? (
+            <ChannelList
+              channels={channels}
+              activeChannel={activeChannelName}
+              onChannelChange={handleChannelChange}
+              onCreateChannel={() => setIsCreateChannelModalOpen(true)}
+              loading={channelsLoading}
+            />
+          ) : (
+            <div className="flex-1 overflow-y-auto">
+              <DMList
+                onSelectConversation={handleSelectDMConversation}
+                selectedConversationId={activeDMConversation?.dm_id || null}
+                onClose={() => {}}
+                getAvatarColor={getAvatarColor}
+              />
+            </div>
+          )}
 
           <UserControls
             user={user}
@@ -698,96 +775,121 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
 
         {/* Main Chat Area */}
         <div className="flex-1 flex flex-col bg-gray-900/40 backdrop-blur-sm">
-          <ChatHeader
-            activeChannel={activeChannelName}
-            connectionStatus={connectionStatus}
-            onlineUserCount={onlineUsers.length + (isCurrentUserInList ? 0 : 1)}
-            description={
-              channels.find((ch) => ch.id === activeChannelId)?.description ||
-              undefined
-            }
-            isChannelOwner={
-              channels.find((ch) => ch.id === activeChannelId)?.created_by ===
-              session?.user?.id
-            }
-            showChannelSettings={
-              channels.find((ch) => ch.id === activeChannelId)?.isJoined ===
-              true
-            }
-            onOpenChannelSettings={handleOpenChannelSettings}
-          />
-
-          {/* Messages Area */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {messages.length === 0 && (
-              <div className="flex items-start space-x-3 group">
-                <Avatar className="w-10 h-10 mt-1">
-                  <AvatarFallback className="bg-gray-900 border border-blue-600/30 text-blue-400 font-semibold">
-                    S
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1">
-                  <div className="flex items-center space-x-2 mb-1">
-                    <span className="font-semibold text-white">System</span>
-                    <span className="text-xs text-gray-400">
-                      {formatTimestamp(new Date().toISOString())}
-                    </span>
-                  </div>
-                  <div className="text-gray-300 bg-gray-800/50 backdrop-blur-sm rounded-lg p-3 border border-gray-600/30">
-                    Welcome to #{activeChannelName}, {user.username}! Start
-                    chatting with your team.
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {messages.map((message) => (
-              <MessageComponent
-                key={Math.random().toString(36).substring(2, 15) + message.id}
-                message={message}
-                getAvatarColor={getAvatarColor}
-                formatTimestamp={formatTimestamp}
-                onUserClick={handleUserMention}
-                onReply={handleReply}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
-                currentUsername={user?.username}
-                findMessageById={findMessageById}
-                getUserAvatarUrl={getUserAvatarUrl}
+          {viewMode === "channels" ? (
+            <>
+              <ChatHeader
+                activeChannel={activeChannelName}
+                connectionStatus={connectionStatus}
+                onlineUserCount={
+                  onlineUsers.length + (isCurrentUserInList ? 0 : 1)
+                }
+                description={
+                  channels.find((ch) => ch.id === activeChannelId)
+                    ?.description || undefined
+                }
+                isChannelOwner={
+                  channels.find((ch) => ch.id === activeChannelId)
+                    ?.created_by === session?.user?.id
+                }
+                showChannelSettings={
+                  channels.find((ch) => ch.id === activeChannelId)?.isJoined ===
+                  true
+                }
+                onOpenChannelSettings={handleOpenChannelSettings}
               />
-            ))}
 
-            <TypingIndicator typingUsers={typingUsers} />
+              {/* Messages Area */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {messages.length === 0 && (
+                  <div className="flex items-start space-x-3 group">
+                    <Avatar className="w-10 h-10 mt-1">
+                      <AvatarFallback className="bg-gray-900 border border-blue-600/30 text-blue-400 font-semibold">
+                        S
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-2 mb-1">
+                        <span className="font-semibold text-white">System</span>
+                        <span className="text-xs text-gray-400">
+                          {formatTimestamp(new Date().toISOString())}
+                        </span>
+                      </div>
+                      <div className="text-gray-300 bg-gray-800/50 backdrop-blur-sm rounded-lg p-3 border border-gray-600/30">
+                        Welcome to #{activeChannelName}, {user.username}! Start
+                        chatting with your team.
+                      </div>
+                    </div>
+                  </div>
+                )}
 
-            <div ref={messagesEndRef} />
+                {messages.map((message) => (
+                  <MessageComponent
+                    key={message.id}
+                    message={message}
+                    getAvatarColor={getAvatarColor}
+                    formatTimestamp={formatTimestamp}
+                    onUserClick={handleUserMention}
+                    onReply={handleReply}
+                    onEdit={handleEdit}
+                    onDelete={handleDelete}
+                    currentUsername={user?.username}
+                    findMessageById={findMessageById}
+                    getUserAvatarUrl={getUserAvatarUrl}
+                  />
+                ))}
+
+                <TypingIndicator typingUsers={typingUsers} />
+
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Message Input */}
+              <MessageInput
+                activeChannel={activeChannelName}
+                isConnected={isConnected}
+                onSendMessage={handleSendMessage}
+                onTyping={sendTyping}
+                onStopTyping={sendStopTyping}
+                replyToMessage={replyToMessage}
+                onCancelReply={handleCancelReply}
+              />
+            </>
+          ) : activeDMConversation ? (
+            <DMChat
+              conversation={activeDMConversation}
+              onBack={handleBackToDMList}
+              getAvatarColor={getAvatarColor}
+              currentUserId={session?.user?.id || ""}
+            />
+          ) : (
+            <div className="flex items-center justify-center h-full text-gray-400">
+              <div className="text-center">
+                <MessageCircle className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <h3 className="text-lg font-semibold mb-2">
+                  Select a conversation
+                </h3>
+                <p>Choose a direct message conversation to start chatting</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right Sidebar - User List (only in channels mode) */}
+        {viewMode === "channels" && (
+          <div className="w-60 bg-gray-900/50 backdrop-blur-sm border-l border-gray-700/50">
+            <UserList
+              currentUser={{
+                username: user.username,
+                avatar_url: user.avatar_url,
+              }}
+              onlineUsers={onlineUsers}
+              connectionStatus={connectionStatus}
+              isConnected={isConnected}
+              onUserClick={handleUserClick}
+              getAvatarColor={getAvatarColor}
+            />
           </div>
-
-          {/* Message Input */}
-          <MessageInput
-            activeChannel={activeChannelName}
-            isConnected={isConnected}
-            onSendMessage={handleSendMessage}
-            onTyping={sendTyping}
-            onStopTyping={sendStopTyping}
-            replyToMessage={replyToMessage}
-            onCancelReply={handleCancelReply}
-          />
-        </div>
-
-        {/* Right Sidebar - User List */}
-        <div className="w-60 bg-gray-900/50 backdrop-blur-sm border-l border-gray-700/50">
-          <UserList
-            currentUser={{
-              username: user.username,
-              avatar_url: user.avatar_url,
-            }}
-            onlineUsers={onlineUsers}
-            connectionStatus={connectionStatus}
-            isConnected={isConnected}
-            onUserClick={handleUserClick}
-            getAvatarColor={getAvatarColor}
-          />
-        </div>
+        )}
       </div>
 
       {/* User Profile Modal */}
@@ -829,11 +931,7 @@ export function ChatLayout({ initialUser }: ChatLayoutProps) {
       {isFriendsManagerOpen && (
         <FriendsManager
           onClose={() => setIsFriendsManagerOpen(false)}
-          onSendMessage={(username) => {
-            // Switch to DM or general channel and mention the user
-            console.log("Send message to:", username);
-            setIsFriendsManagerOpen(false);
-          }}
+          onStartDirectMessage={handleStartDirectMessage}
           getAvatarColor={getAvatarColor}
         />
       )}

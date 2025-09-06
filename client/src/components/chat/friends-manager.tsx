@@ -21,7 +21,7 @@ import {
 
 interface FriendsManagerProps {
   onClose: () => void;
-  onSendMessage: (username: string) => void;
+  onStartDirectMessage: (friendId: string) => void;
   getAvatarColor: (username: string) => string;
 }
 
@@ -35,7 +35,7 @@ type userProps = {
 };
 export function FriendsManager({
   onClose,
-  onSendMessage,
+  onStartDirectMessage,
   getAvatarColor,
 }: FriendsManagerProps) {
   const [activeTab, setActiveTab] = useState<
@@ -302,7 +302,7 @@ export function FriendsManager({
                       actions={
                         <>
                           <Button
-                            onClick={() => onSendMessage(friend.username)}
+                            onClick={() => onStartDirectMessage(friend.id)}
                             size="sm"
                             variant="outline"
                             className="border-gray-600 text-gray-300 hover:bg-gray-700/50"
